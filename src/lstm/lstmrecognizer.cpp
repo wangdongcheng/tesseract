@@ -18,7 +18,7 @@
 
 // Include automatically generated configuration file if running autoconf.
 #ifdef HAVE_CONFIG_H
-#include "config_auto.h"
+#  include "config_auto.h"
 #endif
 
 #include "lstmrecognizer.h"
@@ -39,12 +39,20 @@
 #include "statistc.h"
 #include "tprintf.h"
 
+#include <unordered_set>
+#include <vector>
+
 namespace tesseract {
 
 // Default ratio between dict and non-dict words.
 const double kDictRatio = 2.25;
 // Default certainty offset to give the dictionary a chance.
 const double kCertOffset = -0.085;
+
+LSTMRecognizer::LSTMRecognizer(const STRING language_data_path_prefix)
+    : LSTMRecognizer::LSTMRecognizer() {
+  ccutil_.language_data_path_prefix = language_data_path_prefix;
+}
 
 LSTMRecognizer::LSTMRecognizer()
     : network_(nullptr),
@@ -66,13 +74,14 @@ LSTMRecognizer::~LSTMRecognizer() {
 }
 
 // Loads a model from mgr, including the dictionary only if lang is not null.
-bool LSTMRecognizer::Load(const char* lang, TessdataManager* mgr) {
+bool LSTMRecognizer::Load(const ParamsVectors* params, const char* lang,
+                          TessdataManager* mgr) {
   TFile fp;
   if (!mgr->GetComponent(TESSDATA_LSTM, &fp)) return false;
   if (!DeSerialize(mgr, &fp)) return false;
   if (lang == nullptr) return true;
   // Allow it to run without a dictionary.
-  LoadDictionary(lang, mgr);
+  LoadDictionary(params, lang, mgr);
   return true;
 }
 
@@ -154,9 +163,15 @@ bool LSTMRecognizer::LoadRecoder(TFile* fp) {
 // on the unicharset matching. This enables training to deserialize a model
 // from checkpoint or restore without having to go back and reload the
 // dictionary.
-bool LSTMRecognizer::LoadDictionary(const char* lang, TessdataManager* mgr) {
+// Some parameters have to be passed in (from langdata/config/api via Tesseract)
+bool LSTMRecognizer::LoadDictionary(const ParamsVectors* params,
+                                    const char* lang, TessdataManager* mgr) {
   delete dict_;
   dict_ = new Dict(&ccutil_);
+  dict_->user_words_file.ResetFrom(params);
+  dict_->user_words_suffix.ResetFrom(params);
+  dict_->user_patterns_file.ResetFrom(params);
+  dict_->user_patterns_suffix.ResetFrom(params);
   dict_->SetupForLoad(Dict::GlobalDawgCache());
   dict_->LoadLSTM(lang, mgr);
   if (dict_->FinishLoad()) return true;  // Success.
@@ -173,7 +188,8 @@ void LSTMRecognizer::RecognizeLine(const ImageData& image_data, bool invert,
                                    bool debug, double worst_dict_cert,
                                    const TBOX& line_box,
                                    PointerVector<WERD_RES>* words,
-                                   int lstm_choice_mode) {
+                                   int lstm_choice_mode,
+                                   int lstm_choice_amount) {
   NetworkIO outputs;
   float scale_factor;
   NetworkIO inputs;
@@ -184,10 +200,38 @@ void LSTMRecognizer::RecognizeLine(const ImageData& image_data, bool invert,
     search_ =
         new RecodeBeamSearch(recoder_, null_char_, SimpleTextOutput(), dict_);
   }
+  search_->excludedUnichars.clear();
   search_->Decode(outputs, kDictRatio, kCertOffset, worst_dict_cert,
                   &GetUnicharset(), lstm_choice_mode);
   search_->ExtractBestPathAsWords(line_box, scale_factor, debug,
                                   &GetUnicharset(), words, lstm_choice_mode);
+  if (lstm_choice_mode){
+    search_->extractSymbolChoices(&GetUnicharset());
+    for (int i = 0; i < lstm_choice_amount; ++i) {
+      search_->DecodeSecondaryBeams(outputs, kDictRatio, kCertOffset,
+                                    worst_dict_cert, &GetUnicharset(),
+                                    lstm_choice_mode);
+      search_->extractSymbolChoices(&GetUnicharset());
+    }
+    search_->segmentTimestepsByCharacters();
+    int char_it = 0;
+    for (int i = 0; i < words->size(); ++i) {
+      for (int j = 0; j < words->get(i)->end; ++j) {
+        if (char_it < search_->ctc_choices.size())
+          words->get(i)->CTC_symbol_choices.push_back(
+              search_->ctc_choices[char_it]);
+        if (char_it < search_->segmentedTimesteps.size())
+          words->get(i)->segmented_timesteps.push_back(
+              search_->segmentedTimesteps[char_it]);
+        ++char_it;
+      }
+      words->get(i)->timesteps = search_->combineSegmentedTimesteps(
+          &words->get(i)->segmented_timesteps);
+    }
+    search_->segmentedTimesteps.clear();
+    search_->ctc_choices.clear();
+    search_->excludedUnichars.clear();
+  }
 }
 
 // Helper computes min and mean best results in the output.
@@ -256,7 +300,8 @@ bool LSTMRecognizer::RecognizeLine(const ImageData& image_data, bool invert,
     pixInvert(pix, pix);
     Input::PreparePixInput(network_->InputShape(), pix, &randomizer_,
                            &inv_inputs);
-    network_->Forward(debug, inv_inputs, nullptr, &scratch_space_, &inv_outputs);
+    network_->Forward(debug, inv_inputs, nullptr, &scratch_space_,
+                      &inv_outputs);
     float inv_min, inv_mean, inv_sd;
     OutputStats(inv_outputs, &inv_min, &inv_mean, &inv_sd);
     if (inv_min > pos_min && inv_mean > pos_mean && inv_sd < pos_sd) {
@@ -400,7 +445,7 @@ void LSTMRecognizer::DebugActivationRange(const NetworkIO& outputs,
 // Helper returns true if the null_char is the winner at t, and it beats the
 // null_threshold, or the next choice is space, in which case we will use the
 // null anyway.
-#if 0 // TODO: unused, remove if still unused after 2020.
+#if 0  // TODO: unused, remove if still unused after 2020.
 static bool NullIsBest(const NetworkIO& output, float null_thr,
                        int null_char, int t) {
   if (output.f(t)[null_char] >= null_thr) return true;

@@ -29,10 +29,14 @@ namespace {
 
 class ImagedataTest : public ::testing::Test {
  protected:
+  void SetUp() {
+    std::locale::global(std::locale(""));
+  }
+
   ImagedataTest() {}
 
   // Creates a fake DocumentData, writes it to a file, and returns the filename.
-  std::string MakeFakeDoc(int num_pages, int doc_id,
+  std::string MakeFakeDoc(int num_pages, unsigned doc_id,
                      std::vector<std::string>* page_texts) {
     // The size of the fake images that we will use.
     const int kImageSize = 1048576;
@@ -43,7 +47,7 @@ class ImagedataTest : public ::testing::Test {
     for (int p = 0; p < num_pages; ++p) {
       // Make some fake text that is different for each page and save it.
       page_texts->push_back(
-          absl::StrFormat("Page %d of %d in doc %d", p, num_pages, doc_id));
+          absl::StrFormat("Page %d of %d in doc %u", p, num_pages, doc_id));
       // Make an imagedata and put it in the document.
       ImageData* imagedata =
           ImageData::Build("noname", p, "eng", fake_image.data(),
@@ -86,7 +90,7 @@ TEST_F(ImagedataTest, CachesProperly) {
       //EXPECT_NE(reinterpret_cast<ImageData*>(nullptr), imagedata);
       // Check that this is the right page.
       EXPECT_STREQ(page_texts[page].c_str(),
-                   imagedata->transcription().string());
+                   imagedata->transcription().c_str());
     }
   }
 }
@@ -98,7 +102,7 @@ TEST_F(ImagedataTest, CachesMultiDocs) {
   const std::vector<int> kNumPages = {6, 5, 7};
   std::vector<std::vector<std::string>> page_texts;
   GenericVector<STRING> filenames;
-  for (int d = 0; d < kNumPages.size(); ++d) {
+  for (size_t d = 0; d < kNumPages.size(); ++d) {
     page_texts.emplace_back(std::vector<std::string>());
     std::string filename = MakeFakeDoc(kNumPages[d], d, &page_texts.back());
     filenames.push_back(STRING(filename.c_str()));
@@ -119,11 +123,11 @@ TEST_F(ImagedataTest, CachesMultiDocs) {
     int robin_page = p / kNumPages.size() % kNumPages[robin_doc];
     // Check that this is the right page.
     EXPECT_STREQ(page_texts[robin_doc][robin_page].c_str(),
-                 robin_data->transcription().string());
+                 robin_data->transcription().c_str());
     int serial_doc = p / kNumPages[0] % kNumPages.size();
     int serial_page = p % kNumPages[0] % kNumPages[serial_doc];
     EXPECT_STREQ(page_texts[serial_doc][serial_page].c_str(),
-                 serial_data->transcription().string());
+                 serial_data->transcription().c_str());
   }
 }
 

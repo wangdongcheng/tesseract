@@ -2,7 +2,6 @@
 // File:        scrollview.cpp
 // Description: ScrollView
 // Author:      Joern Wanke
-// Created:     Thu Nov 29 2007
 //
 // (C) Copyright 2007, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,16 +17,18 @@
 ///////////////////////////////////////////////////////////////////////
 //
 
-#define NOMINMAX
-
 #include <algorithm>
 #include <climits>
 #include <cstdarg>
 #include <cstring>
 #include <map>
+#include <mutex>       // for std::mutex
 #include <string>
+#include <thread>      // for std::thread
 #include <utility>
 #include <vector>
+
+#include "allheaders.h"
 
 // Include automatically generated configuration file if running autoconf.
 #ifdef HAVE_CONFIG_H
@@ -35,14 +36,11 @@
 #endif
 
 #include "scrollview.h"
+#include "svutil.h"    // for SVNetwork
 
 const int kSvPort = 8461;
 const int kMaxMsgSize = 4096;
 const int kMaxIntPairSize = 45;  // Holds %d,%d, for up to 64 bit.
-
-#include "svutil.h"
-
-#include "allheaders.h"
 
 struct SVPolyLineBuffer {
   bool empty;  // Independent indicator to allow SendMsg to call SendPolygon.
@@ -52,14 +50,14 @@ struct SVPolyLineBuffer {
 
 // A map between the window IDs and their corresponding pointers.
 static std::map<int, ScrollView*> svmap;
-static SVMutex* svmap_mu;
+static std::mutex* svmap_mu;
 // A map of all semaphores waiting for a specific event on a specific window.
 static std::map<std::pair<ScrollView*, SVEventType>,
                 std::pair<SVSemaphore*, SVEvent*> > waiting_for_events;
-static SVMutex* waiting_for_events_mu;
+static std::mutex* waiting_for_events_mu;
 
 SVEvent* SVEvent::copy() {
-  SVEvent* any = new SVEvent;
+  auto* any = new SVEvent;
   any->command_id = command_id;
   any->counter = counter;
   any->parameter = new char[strlen(parameter) + 1];
@@ -83,7 +81,7 @@ SVEventHandler::~SVEventHandler() = default;
 /// to the client. It basically loops through messages, parses them to events
 /// and distributes it to the waiting handlers.
 /// It is run from a different thread and synchronizes via SVSync.
-void* ScrollView::MessageReceiver(void* a) {
+void ScrollView::MessageReceiver() {
   int counter_event_id = 0;  // ongoing counter
   char* message = nullptr;
   // Wait until a new message appears in the input stream_.
@@ -94,9 +92,9 @@ void* ScrollView::MessageReceiver(void* a) {
 // This is the main loop which iterates until the server is dead (strlen = -1).
 // It basically parses for 3 different messagetypes and then distributes the
 // events accordingly.
-  while (1) {
+  while (true) {
     // The new event we create.
-    SVEvent* cur = new SVEvent;
+    auto* cur = new SVEvent;
     // The ID of the corresponding window.
     int window_id;
 
@@ -108,7 +106,7 @@ void* ScrollView::MessageReceiver(void* a) {
            &cur->y, &cur->x_size, &cur->y_size, &cur->command_id, &n);
     char* p = (message + n);
 
-    svmap_mu->Lock();
+    svmap_mu->lock();
     cur->window = svmap[window_id];
 
     if (cur->window != nullptr) {
@@ -149,7 +147,7 @@ void* ScrollView::MessageReceiver(void* a) {
                                                             SVET_ANY);
       std::pair<ScrollView*, SVEventType> awaiting_list_any_window((ScrollView*)nullptr,
                                                             SVET_ANY);
-      waiting_for_events_mu->Lock();
+      waiting_for_events_mu->lock();
       if (waiting_for_events.count(awaiting_list) > 0) {
         waiting_for_events[awaiting_list].second = cur;
         waiting_for_events[awaiting_list].first->Signal();
@@ -163,7 +161,7 @@ void* ScrollView::MessageReceiver(void* a) {
         // No one wanted it, so delete it.
         delete cur;
       }
-      waiting_for_events_mu->Unlock();
+      waiting_for_events_mu->unlock();
       // Signal the corresponding semaphore twice (for both copies).
       ScrollView* sv = svmap[window_id];
       if (sv != nullptr) {
@@ -173,14 +171,13 @@ void* ScrollView::MessageReceiver(void* a) {
     } else {
       delete cur;  // Applied to no window.
     }
-    svmap_mu->Unlock();
+    svmap_mu->unlock();
 
     // Wait until a new message appears in the input stream_.
     do {
       message = ScrollView::GetStream()->Receive();
     } while (message == nullptr);
   }
-  return nullptr;
 }
 
 // Table to implement the color index values in the old system.
@@ -276,11 +273,12 @@ void ScrollView::Initialize(const char* name, int x_pos, int y_pos, int x_size,
   if (stream_ == nullptr) {
     nr_created_windows_ = 0;
     stream_ = new SVNetwork(server_name, kSvPort);
-    waiting_for_events_mu = new SVMutex();
-    svmap_mu = new SVMutex();
+    waiting_for_events_mu = new std::mutex();
+    svmap_mu = new std::mutex();
     SendRawMessage(
         "svmain = luajava.bindClass('com.google.scrollview.ScrollView')\n");
-    SVSync::StartThread(MessageReceiver, nullptr);
+    std::thread t(&ScrollView::MessageReceiver);
+    t.detach();
   }
 
   // Set up the variables on the clientside.
@@ -295,15 +293,15 @@ void ScrollView::Initialize(const char* name, int x_pos, int y_pos, int x_size,
   points_ = new SVPolyLineBuffer;
   points_->empty = true;
 
-  svmap_mu->Lock();
+  svmap_mu->lock();
   svmap[window_id_] = this;
-  svmap_mu->Unlock();
+  svmap_mu->unlock();
 
-  for (int i = 0; i < SVET_COUNT; i++) {
-    event_table_[i] = nullptr;
+  for (auto & i : event_table_) {
+    i = nullptr;
   }
 
-  mutex_ = new SVMutex();
+  mutex_ = new std::mutex();
   semaphore_ = new SVSemaphore();
 
   // Set up an actual Window on the client side.
@@ -315,75 +313,77 @@ void ScrollView::Initialize(const char* name, int x_pos, int y_pos, int x_size,
            x_pos, y_pos, x_size, y_size, x_canvas_size, y_canvas_size);
   SendRawMessage(message);
 
-  SVSync::StartThread(StartEventHandler, this);
+  std::thread t(&ScrollView::StartEventHandler, this);
+  t.detach();
 }
 
 /// Sits and waits for events on this window.
-void* ScrollView::StartEventHandler(void* a) {
-  ScrollView* sv = static_cast<ScrollView*>(a);
+void ScrollView::StartEventHandler() {
   SVEvent* new_event;
 
-  do {
+  for (;;) {
     stream_->Flush();
-    sv->semaphore_->Wait();
+    semaphore_->Wait();
     new_event = nullptr;
     int serial = -1;
     int k = -1;
-    sv->mutex_->Lock();
+    mutex_->lock();
     // Check every table entry if he is is valid and not already processed.
 
     for (int i = 0; i < SVET_COUNT; i++) {
-      if (sv->event_table_[i] != nullptr &&
-          (serial < 0 || sv->event_table_[i]->counter < serial)) {
-        new_event = sv->event_table_[i];
-        serial = sv->event_table_[i]->counter;
+      if (event_table_[i] != nullptr &&
+          (serial < 0 || event_table_[i]->counter < serial)) {
+        new_event = event_table_[i];
+        serial = event_table_[i]->counter;
         k = i;
       }
     }
     // If we didn't find anything we had an old alarm and just sleep again.
     if (new_event != nullptr) {
-      sv->event_table_[k] = nullptr;
-      sv->mutex_->Unlock();
-      if (sv->event_handler_ != nullptr) { sv->event_handler_->Notify(new_event); }
+      event_table_[k] = nullptr;
+      mutex_->unlock();
+      if (event_handler_ != nullptr) { event_handler_->Notify(new_event); }
       if (new_event->type == SVET_DESTROY) {
         // Signal the destructor that it is safe to terminate.
-        sv->event_handler_ended_ = true;
-        sv = nullptr;
+        event_handler_ended_ = true;
+        delete new_event;  // Delete the pointer after it has been processed.
+        return;
       }
       delete new_event;  // Delete the pointer after it has been processed.
-    } else { sv->mutex_->Unlock(); }
-  // The thread should run as long as its associated window is alive.
-  } while (sv != nullptr);
-  return nullptr;
+    } else {
+      mutex_->unlock();
+    }
+    // The thread should run as long as its associated window is alive.
+  }
 }
 #endif  // GRAPHICS_DISABLED
 
 ScrollView::~ScrollView() {
   #ifndef GRAPHICS_DISABLED
-  svmap_mu->Lock();
+  svmap_mu->lock();
   if (svmap[window_id_] != nullptr) {
-    svmap_mu->Unlock();
+    svmap_mu->unlock();
     // So the event handling thread can quit.
     SendMsg("destroy()");
 
     SVEvent* sve = AwaitEvent(SVET_DESTROY);
     delete sve;
-    svmap_mu->Lock();
+    svmap_mu->lock();
     svmap[window_id_] = nullptr;
-    svmap_mu->Unlock();
+    svmap_mu->unlock();
     // The event handler thread for this window *must* receive the
     // destroy event and set its pointer to this to nullptr before we allow
     // the destructor to exit.
     while (!event_handler_ended_)
       Update();
   } else {
-    svmap_mu->Unlock();
+    svmap_mu->unlock();
   }
   delete mutex_;
   delete semaphore_;
   delete points_;
-  for (int i = 0; i < SVET_COUNT; i++) {
-    delete event_table_[i];
+  for (auto & i : event_table_) {
+    delete i;
   }
   #endif  // GRAPHICS_DISABLED
 }
@@ -394,14 +394,14 @@ void ScrollView::SendMsg(const char* format, ...) {
   if (!points_->empty)
     SendPolygon();
   va_list args;
-  char message[kMaxMsgSize];
+  char message[kMaxMsgSize - 4];
 
   va_start(args, format);  // variable list
-  vsnprintf(message, kMaxMsgSize, format, args);
+  vsnprintf(message, sizeof(message), format, args);
   va_end(args);
 
   char form[kMaxMsgSize];
-  snprintf(form, kMaxMsgSize, "w%u:%s\n", window_id_, message);
+  snprintf(form, sizeof(form), "w%u:%s\n", window_id_, message);
 
   stream_->Send(form);
 }
@@ -428,14 +428,13 @@ void ScrollView::SetEvent(SVEvent* svevent) {
   any->counter = specific->counter + 1;
 
 // Place both events into the queue.
-  mutex_->Lock();
+  std::lock_guard<std::mutex> guard(*mutex_);
   // Delete the old objects..
   delete event_table_[specific->type];
   delete event_table_[SVET_ANY];
   // ...and put the new ones in the table.
   event_table_[specific->type] = specific;
   event_table_[SVET_ANY] = any;
-  mutex_->Unlock();
 }
 
 
@@ -444,20 +443,20 @@ void ScrollView::SetEvent(SVEvent* svevent) {
 /// SVEvent afterwards!
 SVEvent* ScrollView::AwaitEvent(SVEventType type) {
   // Initialize the waiting semaphore.
-  SVSemaphore* sem = new SVSemaphore();
+  auto* sem = new SVSemaphore();
   std::pair<ScrollView*, SVEventType> ea(this, type);
-  waiting_for_events_mu->Lock();
+  waiting_for_events_mu->lock();
   waiting_for_events[ea] = std::pair<SVSemaphore*, SVEvent*> (sem, (SVEvent*)nullptr);
-  waiting_for_events_mu->Unlock();
+  waiting_for_events_mu->unlock();
   // Wait on it, but first flush.
   stream_->Flush();
   sem->Wait();
   // Process the event we got woken up for (its in waiting_for_events pair).
-  waiting_for_events_mu->Lock();
+  waiting_for_events_mu->lock();
   SVEvent* ret = waiting_for_events[ea].second;
   waiting_for_events.erase(ea);
   delete sem;
-  waiting_for_events_mu->Unlock();
+  waiting_for_events_mu->unlock();
   return ret;
 }
 
@@ -465,19 +464,19 @@ SVEvent* ScrollView::AwaitEvent(SVEventType type) {
 // No event is returned here!
 SVEvent* ScrollView::AwaitEventAnyWindow() {
   // Initialize the waiting semaphore.
-  SVSemaphore* sem = new SVSemaphore();
+  auto* sem = new SVSemaphore();
   std::pair<ScrollView*, SVEventType> ea((ScrollView*)nullptr, SVET_ANY);
-  waiting_for_events_mu->Lock();
+  waiting_for_events_mu->lock();
   waiting_for_events[ea] = std::pair<SVSemaphore*, SVEvent*> (sem, (SVEvent*)nullptr);
-  waiting_for_events_mu->Unlock();
+  waiting_for_events_mu->unlock();
   // Wait on it.
   stream_->Flush();
   sem->Wait();
   // Process the event we got woken up for (its in waiting_for_events pair).
-  waiting_for_events_mu->Lock();
+  waiting_for_events_mu->lock();
   SVEvent* ret = waiting_for_events[ea].second;
   waiting_for_events.erase(ea);
-  waiting_for_events_mu->Unlock();
+  waiting_for_events_mu->unlock();
   return ret;
 }
 
@@ -562,14 +561,14 @@ void ScrollView::AlwaysOnTop(bool b) {
 // Adds a message entry to the message box.
 void ScrollView::AddMessage(const char* format, ...) {
   va_list args;
-  char message[kMaxMsgSize];
-  char form[kMaxMsgSize];
+  char message[kMaxMsgSize - 4];
 
   va_start(args, format);  // variable list
-  vsnprintf(message, kMaxMsgSize, format, args);
+  vsnprintf(message, sizeof(message), format, args);
   va_end(args);
 
-  snprintf(form, kMaxMsgSize, "w%u:%s", window_id_, message);
+  char form[kMaxMsgSize];
+  snprintf(form, sizeof(form), "w%u:%s", window_id_, message);
 
   char* esc = AddEscapeChars(form);
   SendMsg("addMessage(\"%s\")", esc);
@@ -709,13 +708,11 @@ void ScrollView::UpdateWindow() {
 
 // Note: this is an update to all windows
 void ScrollView::Update() {
-  svmap_mu->Lock();
-  for (std::map<int, ScrollView*>::iterator iter = svmap.begin();
-      iter != svmap.end(); ++iter) {
-    if (iter->second != nullptr)
-      iter->second->UpdateWindow();
+  std::lock_guard<std::mutex> guard(*svmap_mu);
+  for (auto & iter : svmap) {
+    if (iter.second != nullptr)
+      iter.second->UpdateWindow();
   }
-  svmap_mu->Unlock();
 }
 
 // Set the pen color, using an enum value (e.g. ScrollView::ORANGE)

@@ -2,7 +2,6 @@
  * File:        polyaprx.cpp  (Formerly polygon.c)
  * Description: Code for polygonal approximation from old edgeprog.
  * Author:      Ray Smith
- * Created:     Thu Nov 25 11:42:04 GMT 1993
  *
  * (C) Copyright 1993, Hewlett-Packard Ltd.
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,19 +21,16 @@
 #include "blobs.h"             // for EDGEPT, TPOINT, VECTOR, TESSLINE
 #include "coutln.h"            // for C_OUTLINE
 #include "errcode.h"           // for ASSERT_HOST
-#include "host.h"              // for FALSE, TRUE
 #include "mod128.h"            // for DIR128
 #include "params.h"            // for BoolParam, BOOL_VAR
 #include "points.h"            // for ICOORD
 #include "rect.h"              // for TBOX
 #include "tprintf.h"           // for tprintf
-#include "vecfuncs.h"          // for LENGTH, point_diff, CROSS
 
-#define EXTERN
 #define FASTEDGELENGTH    256
 
-EXTERN BOOL_VAR(poly_debug, FALSE, "Debug old poly");
-EXTERN BOOL_VAR(poly_wide_objects_better, TRUE,
+static BOOL_VAR(poly_debug, false, "Debug old poly");
+static BOOL_VAR(poly_wide_objects_better, true,
                 "More accurate approx on wide things");
 
 #define FIXED       4            /*OUTLINE point is fixed */
@@ -84,7 +80,7 @@ TESSLINE* ApproximateOutline(bool allow_detailed_fx, C_OUTLINE* c_outline) {
   EDGEPT* result = nullptr;
   EDGEPT* prev_result = nullptr;
   do {
-    EDGEPT* new_pt = new EDGEPT;
+    auto* new_pt = new EDGEPT;
     new_pt->pos = edgept->pos;
     new_pt->prev = prev_result;
     if (prev_result == nullptr) {
@@ -167,7 +163,7 @@ EDGEPT edgepts[]                 //output is array
       edgepts[epindex].flags[FLAGS] = 0;
       edgepts[epindex].next = &edgepts[epindex + 1];
       prevdir += 64;
-      epdir = (DIR128) 0 - prevdir;
+      epdir = DIR128(0) - prevdir;
       epdir >>= 4;
       epdir &= 7;
       edgepts[epindex].flags[DIR] = epdir;
@@ -199,7 +195,7 @@ EDGEPT edgepts[]                 //output is array
   edgepts[epindex].prev = &edgepts[epindex - 1];
   edgepts[epindex].next = &edgepts[0];
   prevdir += 64;
-  epdir = (DIR128) 0 - prevdir;
+  epdir = DIR128(0) - prevdir;
   epdir >>= 4;
   epdir &= 7;
   edgepts[epindex].flags[DIR] = epdir;
@@ -354,18 +350,18 @@ void fix2(                //polygonal approx
   do {
     if (fixed_count <= 3)
       break;                     //already too few
-    point_diff (d12vec, edgefix1->pos, edgefix2->pos);
-    d12 = LENGTH (d12vec);
+    d12vec.diff(edgefix1->pos, edgefix2->pos);
+    d12 = d12vec.length();
     // TODO(rays) investigate this change:
     // Only unfix a point if it is part of a low-curvature section
     // of outline and the total angle change of the outlines is
     // less than 90 degrees, ie the scalar product is positive.
-    // if (d12 <= gapmin && SCALAR(edgefix0->vec, edgefix2->vec) > 0) {
+    // if (d12 <= gapmin && edgefix0->vec.dot(edgefix2->vec) > 0) {
     if (d12 <= gapmin) {
-      point_diff (d01vec, edgefix0->pos, edgefix1->pos);
-      d01 = LENGTH (d01vec);
-      point_diff (d23vec, edgefix2->pos, edgefix3->pos);
-      d23 = LENGTH (d23vec);
+      d01vec.diff(edgefix0->pos, edgefix1->pos);
+      d01 = d01vec.length();
+      d23vec.diff(edgefix2->pos, edgefix3->pos);
+      d23 = d23vec.length();
       if (d01 > d23) {
         edgefix2->flags[FLAGS] &= ~FIXED;
         fixed_count--;
@@ -540,7 +536,7 @@ void cutline(                //recursive refine
   edge = edge->next;             /*move to actual point */
   maxpoint = edge;               /*in case there isn't one */
   do {
-    perp = CROSS (vec, vecsum);  /*get perp distance */
+    perp = vec.cross(vecsum);    // get perp distance
     if (perp != 0) {
       perp *= perp;              /*squared deviation */
     }
@@ -558,7 +554,7 @@ void cutline(                //recursive refine
   }
   while (edge != last);          /*test all line */
 
-  perp = LENGTH (vecsum);
+  perp = vecsum.length();
   ASSERT_HOST (perp != 0);
 
   if (maxperp < 256 * INT16_MAX) {

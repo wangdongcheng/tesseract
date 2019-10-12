@@ -2,7 +2,6 @@
  * File:        pageres.h  (Formerly page_res.h)
  * Description: Results classes used by control.c
  * Author:      Phil Cheatle
- * Created:     Tue Sep 22 08:42:49 BST 1992
  *
  * (C) Copyright 1992, Hewlett-Packard Ltd.
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +20,7 @@
 #define PAGERES_H
 
 #include <cstdint>             // for int32_t, int16_t
+#include <functional>          // for std::function
 #include <set>                 // for std::pair
 #include <vector>              // for std::vector
 #include <sys/types.h>         // for int8_t
@@ -48,8 +48,6 @@ class WERD_RES;
 
 struct Pix;
 struct TWERD;
-
-template <class R, class A1, class A2> class TessResultCallback2;
 
 namespace tesseract {
   class BoxWord;
@@ -122,8 +120,6 @@ class BLOCK_RES:public ELIST_LINK {
   float x_height;
   bool font_assigned;         // block already
   //      processed
-  bool bold;                  // all bold
-  bool italic;                // all italic
 
   ROW_RES_LIST row_res_list;
 
@@ -186,7 +182,7 @@ class WERD_RES : public ELIST_LINK {
   // The word is the input C_BLOBs in the rotated pixel space.
   // word is NOT owned by the WERD_RES unless combination is true.
   // All the other word pointers ARE owned by the WERD_RES.
-  WERD* word;                     // Input C_BLOB word.
+  WERD* word = nullptr; // Input C_BLOB word.
 
   // -------------SETUP BY SetupFor*Recognition---READONLY-INPUT------------
 
@@ -195,15 +191,15 @@ class WERD_RES : public ELIST_LINK {
   // match as they are both before any chopping.
   // TODO(rays) determine if docqual does anything useful and delete bln_boxes
   // if it doesn't.
-  tesseract::BoxWord* bln_boxes;  // BLN input bounding boxes.
+  tesseract::BoxWord* bln_boxes = nullptr; // BLN input bounding boxes.
   // The ROW that this word sits in. NOT owned by the WERD_RES.
-  ROW* blob_row;
+  ROW* blob_row = nullptr;
   // The denorm provides the transformation to get back to the rotated image
   // coords from the chopped_word/rebuild_word BLN coords, but each blob also
   // has its own denorm.
   DENORM denorm;                  // For use on chopped_word.
   // Unicharset used by the classifier output in best_choice and raw_choice.
-  const UNICHARSET* uch_set;  // For converting back to utf8.
+  const UNICHARSET* uch_set = nullptr; // For converting back to utf8.
 
   // ----Initialized by SetupFor*Recognition---BUT OUTPUT FROM RECOGNITION----
   // ----Setup to a (different!) state expected by the various classifiers----
@@ -212,7 +208,7 @@ class WERD_RES : public ELIST_LINK {
   // The chopped_word is also in BLN space, and represents the fully chopped
   // character fragments that make up the word.
   // The length of chopped_word matches length of seam_array + 1 (if set).
-  TWERD* chopped_word;            // BLN chopped fragments output.
+  TWERD* chopped_word = nullptr; // BLN chopped fragments output.
   // Vector of SEAM* holding chopping points matching chopped_word.
   GenericVector<SEAM*> seam_array;
   // Widths of blobs in chopped_word.
@@ -222,28 +218,37 @@ class WERD_RES : public ELIST_LINK {
   GenericVector<int> blob_gaps;
   // Stores the lstm choices of every timestep
   std::vector<std::vector<std::pair<const char*, float>>> timesteps;
+  // Stores the lstm choices of every timestep segmented by character
+  std::vector<std::vector<std::vector<
+    std::pair<const char*, float>>>> segmented_timesteps;
+  //Symbolchoices aquired during CTC
+  std::vector<std::vector<std::pair<const char*, float>>> CTC_symbol_choices;
+  // Stores if the timestep vector starts with a space
+  bool leading_space = false;
+  // Stores value when the word ends
+  int end = 0;
   // Ratings matrix contains classifier choices for each classified combination
   // of blobs. The dimension is the same as the number of blobs in chopped_word
   // and the leading diagonal corresponds to classifier results of the blobs
   // in chopped_word. The state_ members of best_choice, raw_choice and
   // best_choices all correspond to this ratings matrix and allow extraction
   // of the blob choices for any given WERD_CHOICE.
-  MATRIX* ratings;                // Owned pointer.
+  MATRIX* ratings = nullptr; // Owned pointer.
   // Pointer to the first WERD_CHOICE in best_choices. This is the result that
   // will be output from Tesseract. Note that this is now a borrowed pointer
   // and should NOT be deleted.
-  WERD_CHOICE* best_choice;       // Borrowed pointer.
+  WERD_CHOICE* best_choice = nullptr; // Borrowed pointer.
   // The best raw_choice found during segmentation search. Differs from the
   // best_choice by being the best result according to just the character
   // classifier, not taking any language model information into account.
   // Unlike best_choice, the pointer IS owned by this WERD_RES.
-  WERD_CHOICE* raw_choice;        // Owned pointer.
+  WERD_CHOICE* raw_choice = nullptr;  // Owned pointer.
   // Alternative results found during chopping/segmentation search stages.
   // Note that being an ELIST, best_choices owns the WERD_CHOICEs.
   WERD_CHOICE_LIST best_choices;
 
   // Truth bounding boxes, text and incorrect choice reason.
-  BlamerBundle *blamer_bundle;
+  BlamerBundle* blamer_bundle = nullptr;
 
   // --------------OUTPUT FROM RECOGNITION-------------------------------
   // --------------Not all fields are necessarily set.-------------------
@@ -257,13 +262,21 @@ class WERD_RES : public ELIST_LINK {
 
   // The rebuild_word is also in BLN space, but represents the final best
   // segmentation of the word. Its length is therefore the same as box_word.
-  TWERD* rebuild_word;            // BLN best segmented word.
+  TWERD* rebuild_word = nullptr; // BLN best segmented word.
   // The box_word is in the original image coordinate space. It is the
   // bounding boxes of the rebuild_word, after denormalization.
   // The length of box_word matches rebuild_word, best_state (if set) and
   // correct_text (if set), as well as best_choice and represents the
   // number of classified units in the output.
-  tesseract::BoxWord* box_word;   // Denormalized output boxes.
+  tesseract::BoxWord* box_word = nullptr; // Denormalized output boxes.
+  // The Tesseract that was used to recognize this word. Just a borrowed
+  // pointer. Note: Tesseract's class definition is in a higher-level library.
+  // We avoid introducing a cyclic dependency by not using the Tesseract
+  // within WERD_RES. We are just storing it to provide access to it
+  // for the top-level multi-language controller, and maybe for output of
+  // the recognized language.
+  // tesseract points to data owned elsewhere.
+  tesseract::Tesseract* tesseract = nullptr;
   // The best_state stores the relationship between chopped_word and
   // rebuild_word. Each blob[i] in rebuild_word is composed of best_state[i]
   // adjacent blobs in chopped_word. The seams in seam_array are hidden
@@ -273,47 +286,38 @@ class WERD_RES : public ELIST_LINK {
   // text to the training system without the need for a unicharset. There
   // is one entry in the vector for each blob in rebuild_word and box_word.
   GenericVector<STRING> correct_text;
-  // The Tesseract that was used to recognize this word. Just a borrowed
-  // pointer. Note: Tesseract's class definition is in a higher-level library.
-  // We avoid introducing a cyclic dependency by not using the Tesseract
-  // within WERD_RES. We are just storing it to provide access to it
-  // for the top-level multi-language controller, and maybe for output of
-  // the recognized language.
-  tesseract::Tesseract* tesseract;
 
   // Less-well documented members.
   // TODO(rays) Add more documentation here.
-  WERD_CHOICE *ep_choice;      // ep text TODO(rays) delete this.
+  WERD_CHOICE *ep_choice = nullptr; // ep text TODO(rays) delete this.
   REJMAP reject_map;           // best_choice rejects
-  bool tess_failed;
+  bool tess_failed = false;
   /*
-    If tess_failed is TRUE, one of the following tests failed when Tess
+    If tess_failed is true, one of the following tests failed when Tess
     returned:
     - The outword blob list was not the same length as the best_choice string;
     - The best_choice string contained ALL blanks;
     - The best_choice string was zero length
   */
-  bool tess_accepted;          // Tess thinks its ok?
-  bool tess_would_adapt;       // Tess would adapt?
-  bool done;                   // ready for output?
-  bool small_caps;              // word appears to be small caps
-  bool odd_size;                // word is bigger than line or leader dots.
-  int8_t italic;
-  int8_t bold;
+  bool tess_accepted = false;  // Tess thinks its ok?
+  bool tess_would_adapt = false; // Tess would adapt?
+  bool done = false;            // ready for output?
+  bool small_caps = false;      // word appears to be small caps
+  bool odd_size = false;        // word is bigger than line or leader dots.
   // The fontinfos are pointers to data owned by the classifier.
-  const FontInfo* fontinfo;
-  const FontInfo* fontinfo2;
-  int8_t fontinfo_id_count;       // number of votes
-  int8_t fontinfo_id2_count;      // number of votes
-  bool guessed_x_ht;
-  bool guessed_caps_ht;
-  CRUNCH_MODE unlv_crunch_mode;
-  float x_height;              // post match estimate
-  float caps_height;           // post match estimate
-  float baseline_shift;        // post match estimate.
+  const FontInfo* fontinfo = nullptr;
+  const FontInfo* fontinfo2 = nullptr;
+  int8_t fontinfo_id_count = 0;  // number of votes
+  int8_t fontinfo_id2_count = 0; // number of votes
+  bool guessed_x_ht = true;
+  bool guessed_caps_ht = true;
+  CRUNCH_MODE unlv_crunch_mode = CR_NONE;
+  float x_height = 0.0f;       // post match estimate
+  float caps_height = 0.0f;    // post match estimate
+  float baseline_shift = 0.0f; // post match estimate.
   // Certainty score for the spaces either side of this word (LSTM mode).
   // MIN this value with the actual word certainty.
-  float space_certainty;
+  float space_certainty = 0.0f;
 
   /*
     To deal with fuzzy spaces we need to be able to combine "words" to form
@@ -331,23 +335,20 @@ class WERD_RES : public ELIST_LINK {
     Combination words are FOLLOWED by the sequence of part_of_combo words
     which they combine.
   */
-  bool combination;           //of two fuzzy gap wds
-  bool part_of_combo;         //part of a combo
-  bool reject_spaces;         //Reject spacing?
+  bool combination = false;   //of two fuzzy gap wds
+  bool part_of_combo = false; //part of a combo
+  bool reject_spaces = false; //Reject spacing?
 
-  WERD_RES() {
-    InitNonPointers();
-    InitPointers();
-  }
+  WERD_RES() = default;
+
   WERD_RES(WERD *the_word) {
-    InitNonPointers();
-    InitPointers();
     word = the_word;
   }
   // Deep copies everything except the ratings MATRIX.
   // To get that use deep_copy below.
   WERD_RES(const WERD_RES& source) : ELIST_LINK(source) {
-    InitPointers();
+    // combination is used in function Clear which is called from operator=.
+    combination = false;
     *this = source;            // see operator=
   }
 
@@ -398,8 +399,7 @@ class WERD_RES : public ELIST_LINK {
       UNICHARSET::Direction dir =
           uch_set->get_direction(unichar_id);
       if (dir == UNICHARSET::U_RIGHT_TO_LEFT ||
-          dir == UNICHARSET::U_RIGHT_TO_LEFT_ARABIC ||
-          dir == UNICHARSET::U_ARABIC_NUMBER)
+          dir == UNICHARSET::U_RIGHT_TO_LEFT_ARABIC)
         return true;
     }
     return false;
@@ -413,7 +413,8 @@ class WERD_RES : public ELIST_LINK {
       if (unichar_id < 0 || unichar_id >= uch_set->size())
         continue;  // Ignore illegal chars.
       UNICHARSET::Direction dir = uch_set->get_direction(unichar_id);
-      if (dir == UNICHARSET::U_LEFT_TO_RIGHT)
+      if (dir == UNICHARSET::U_LEFT_TO_RIGHT ||
+          dir == UNICHARSET::U_ARABIC_NUMBER)
         return true;
     }
     return false;
@@ -426,8 +427,6 @@ class WERD_RES : public ELIST_LINK {
     return best_choice->unichars_in_script_order();
   }
 
-  void InitNonPointers();
-  void InitPointers();
   void Clear();
   void ClearResults();
   void ClearWordChoices();
@@ -620,8 +619,8 @@ class WERD_RES : public ELIST_LINK {
   // result to the class returned from class_cb.
   // Returns true if anything was merged.
   bool ConditionalBlobMerge(
-      TessResultCallback2<UNICHAR_ID, UNICHAR_ID, UNICHAR_ID>* class_cb,
-      TessResultCallback2<bool, const TBOX&, const TBOX&>* box_cb);
+      std::function<UNICHAR_ID(UNICHAR_ID, UNICHAR_ID)> class_cb,
+      std::function<bool(const TBOX&, const TBOX&)> box_cb);
 
   // Merges 2 adjacent blobs in the result (index and index+1) and corrects
   // all the data to account for the change.
@@ -647,7 +646,7 @@ class WERD_RES : public ELIST_LINK {
 
   // Returns a really deep copy of *src, including the ratings MATRIX.
   static WERD_RES* deep_copy(const WERD_RES* src) {
-    WERD_RES* result = new WERD_RES(*src);
+    auto* result = new WERD_RES(*src);
     // That didn't copy the ratings, but we want a copy if there is one to
     // begin with.
     if (src->ratings != nullptr)
@@ -685,7 +684,10 @@ class PAGE_RES_IT {
 
   // Do two PAGE_RES_ITs point at the same word?
   // This is much cheaper than cmp().
-  bool operator ==(const PAGE_RES_IT &other) const;
+  bool operator ==(const PAGE_RES_IT &other) const {
+    return word_res == other.word_res && row_res == other.row_res &&
+           block_res == other.block_res;
+  }
 
   bool operator !=(const PAGE_RES_IT &other) const {return !(*this == other); }
 
@@ -787,5 +789,9 @@ class PAGE_RES_IT {
   BLOCK_RES_IT block_res_it;   // iterators
   ROW_RES_IT row_res_it;
   WERD_RES_IT word_res_it;
+  // Iterators used to get the state of word_res_it for the current word.
+  // Since word_res_it is 2 words further on, this is otherwise hard to do.
+  WERD_RES_IT wr_it_of_current_word;
+  WERD_RES_IT wr_it_of_next_word;
 };
 #endif

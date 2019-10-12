@@ -5,7 +5,6 @@
 //              that were found in the dictionary followed by the words
 //              that are ambiguous to them.
 // Author:      Rika Antonova
-// Created:     Fri Oct 21 11:26:43 PDT 2011
 //
 // (C) Copyright 2011, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -58,7 +57,7 @@ int main(int argc, char** argv) {
   GenericVector<STRING> vars_values;
   vars_vec.push_back("output_ambig_words_file");
   vars_values.push_back(output_file_str);
-  api.Init(tessdata_dir, lang.string(), tesseract::OEM_TESSERACT_ONLY, nullptr,
+  api.Init(tessdata_dir, lang.c_str(), tesseract::OEM_TESSERACT_ONLY, nullptr,
            0, &vars_vec, &vars_values, false);
   tesseract::Dict &dict = api.tesseract()->getDict();
   FILE *input_file = fopen(input_file_str, "rb");

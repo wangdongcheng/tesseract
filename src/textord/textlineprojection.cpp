@@ -142,7 +142,7 @@ void TextlineProjection::DisplayProjection() const {
       col_data[x] = result;
     }
   }
-  ScrollView* win = new ScrollView("Projection", 0, 0,
+  auto* win = new ScrollView("Projection", 0, 0,
                                    width, height, width, height);
   win->Image(pixc, 0, 0);
   win->Update();
@@ -750,7 +750,7 @@ void TextlineProjection::TransformToPixCoords(const DENORM* denorm,
   pt->y = ImageYToProjectionY(pt->y);
 }
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
 #pragma optimize("g", off)
 #endif  // _MSC_VER
 // Helper truncates the TPOINT to be within the pix_.
@@ -758,7 +758,7 @@ void TextlineProjection::TruncateToImageBounds(TPOINT* pt) const {
   pt->x = ClipToRange<int>(pt->x, 0, pixGetWidth(pix_) - 1);
   pt->y = ClipToRange<int>(pt->y, 0, pixGetHeight(pix_) - 1);
 }
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
 #pragma optimize("", on)
 #endif  // _MSC_VER
 

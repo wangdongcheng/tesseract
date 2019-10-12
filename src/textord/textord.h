@@ -375,10 +375,8 @@ class Textord {
   BOOL_VAR_H(textord_show_boxes, false, "Display boxes");
   INT_VAR_H(textord_max_noise_size, 7, "Pixel size of noise");
   INT_VAR_H(textord_baseline_debug, 0, "Baseline debug level");
-  double_VAR_H(textord_blob_size_bigile, 95, "Percentile for large blobs");
   double_VAR_H(textord_noise_area_ratio, 0.7,
                "Fraction of bounding box for noise");
-  double_VAR_H(textord_blob_size_smallile, 20, "Percentile for small blobs");
   double_VAR_H(textord_initialx_ile, 0.75, "Ile of sizes for xheight guess");
   double_VAR_H(textord_initialasc_ile, 0.90, "Ile of sizes for xheight guess");
   INT_VAR_H(textord_noise_sizefraction, 10, "Fraction of size for maxima");
@@ -394,7 +392,7 @@ class Textord {
                "Height fraction to discard outlines as speckle noise");
   INT_VAR_H(textord_noise_sncount, 1, "super norm blobs to save row");
   double_VAR_H(textord_noise_rowratio, 6.0, "Dot to norm ratio for deletion");
-  BOOL_VAR_H(textord_noise_debug, FALSE, "Debug row garbage detector");
+  BOOL_VAR_H(textord_noise_debug, false, "Debug row garbage detector");
   double_VAR_H(textord_blshift_maxshift, 0.00, "Max baseline shift");
   double_VAR_H(textord_blshift_xfraction, 9.99, "Min size of baseline shift");
 };

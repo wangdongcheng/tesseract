@@ -18,7 +18,7 @@
 // cl_amd_fp64: AMD extension
 // use build option outside to define fp_t
 /////////////////////////////////////////////
-const char *kernel_src = KERNEL(
+static const char* kernel_src = KERNEL(
 \n#ifdef KHR_DP_EXTENSION\n
 \n#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n
 \n#elif AMD_DP_EXTENSION\n
@@ -56,22 +56,6 @@ KERNEL(
         return;
 
     *(dword + pos) &= ~(*(sword + pos));
-}\n
-)
-
-KERNEL(
-\n__kernel void pixSubtract(__global int *dword, __global int *sword,
-                            const int wpl, const int h, __global int *outword)
-{
-    const unsigned int row = get_global_id(1);
-    const unsigned int col = get_global_id(0);
-    const unsigned int pos = row * wpl + col;
-
-    //Ignore the execss
-    if (row >= h || col >= wpl)
-        return;
-
-    *(outword + pos) = *(dword + pos) & ~(*(sword + pos));
 }\n
 )
 

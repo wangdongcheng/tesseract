@@ -2,7 +2,6 @@
 // File:        equationdetect.h
 // Description: The equation detection class that inherits equationdetectbase.
 // Author:      Zongyi (Joe) Liu (joeliu@google.com)
-// Created:     Fri Aug 31 11:13:01 PST 2011
 //
 // (C) Copyright 2011, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,7 +39,7 @@ class EquationDetect : public EquationDetectBase {
  public:
   EquationDetect(const char* equ_datapath,
                  const char* equ_language);
-  ~EquationDetect();
+  ~EquationDetect() override;
 
   enum IndentType {
     NO_INDENT,
@@ -57,13 +56,13 @@ class EquationDetect : public EquationDetectBase {
   // Iterate over the blobs inside to_block, and set the blobs that we want to
   // process to BSTT_NONE. (By default, they should be BSTT_SKIP). The function
   // returns 0 upon success.
-  int LabelSpecialText(TO_BLOCK* to_block);
+  int LabelSpecialText(TO_BLOCK* to_block) override;
 
   // Find possible equation partitions from part_grid. Should be called
   // after the special_text_type of blobs are set.
   // It returns 0 upon success.
   int FindEquationParts(ColPartitionGrid* part_grid,
-                        ColPartitionSet** best_columns);
+                        ColPartitionSet** best_columns) override;
 
   // Reset the resolution of the processing image. TEST only function.
   void SetResolution(const int resolution);
@@ -181,7 +180,7 @@ class EquationDetect : public EquationDetectBase {
   bool ExpandSeed(ColPartition* seed);
 
   // Starting from the seed position, we search the part_grid_
-  // horizontally/vertically, find all parititions that can be
+  // horizontally/vertically, find all partitions that can be
   // merged with seed, remove them from part_grid_, and put them  into
   // parts_to_merge.
   void ExpandSeedHorizontal(const bool search_left,
@@ -249,12 +248,12 @@ class EquationDetect : public EquationDetectBase {
 
   // The ColPartitionGrid that we are processing. This pointer is passed in from
   // the caller, so do NOT destroy it in the class.
-  ColPartitionGrid* part_grid_;
+  ColPartitionGrid* part_grid_ = nullptr;
 
   // A simple array of pointers to the best assigned column division at
   // each grid y coordinate. This pointer is passed in from the caller, so do
   // NOT destroy it in the class.
-  ColPartitionSet** best_columns_;
+  ColPartitionSet** best_columns_ = nullptr;
 
   // The super bounding box of all cps in the part_grid_.
   TBOX* cps_super_bbox_;

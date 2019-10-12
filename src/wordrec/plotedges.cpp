@@ -4,11 +4,6 @@
  * File:         plotedges.cpp  (Formerly plotedges.c)
  * Description:  Graphics routines for "Edges" and "Outlines" windows
  * Author:       Mark Seaman, OCR Technology
- * Created:      Fri Jul 28 13:14:48 1989
- * Modified:     Tue Jul  9 17:22:22 1991 (Mark Seaman) marks@hpgrlt
- * Language:     C
- * Package:      N/A
- * Status:       Experimental (Do Not Distribute)
  *
  * (c) Copyright 1989, Hewlett-Packard Company.
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -61,7 +56,7 @@ void display_edgepts(LIST outlines) {
   window = edge_window;
   /* Reclaim old memory */
   iterate(outlines) {
-    render_edgepts (window, (EDGEPT *) first_node (outlines), White);
+    render_edgepts (window, reinterpret_cast<EDGEPT *>first_node (outlines), White);
   }
 }
 
@@ -72,12 +67,11 @@ void display_edgepts(LIST outlines) {
  * Display the edges of this blob in the edges window.
  **********************************************************************/
 void draw_blob_edges(TBLOB *blob) {
-  TESSLINE *ol;
-  LIST edge_list = NIL_LIST;
-
   if (wordrec_display_splits) {
-    for (ol = blob->outlines; ol != nullptr; ol = ol->next)
-      push_on (edge_list, ol->loop);
+    LIST edge_list = NIL_LIST;
+    for (TESSLINE* ol = blob->outlines; ol != nullptr; ol = ol->next) {
+      edge_list = push(edge_list, ol->loop);
+    }
     display_edgepts(edge_list);
     destroy(edge_list);
   }

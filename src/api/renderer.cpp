@@ -39,7 +39,7 @@ TessResultRenderer::TessResultRenderer(const char *outputbase,
       happy_(true) {
   if (strcmp(outputbase, "-") && strcmp(outputbase, "stdout")) {
     STRING outfile = STRING(outputbase) + STRING(".") + STRING(file_extension_);
-    fout_ = fopen(outfile.string(), "wb");
+    fout_ = fopen(outfile.c_str(), "wb");
     if (fout_ == nullptr) {
       happy_ = false;
     }
@@ -135,60 +135,6 @@ bool TessTextRenderer::AddImageHandler(TessBaseAPI* api) {
   if (pageSeparator != nullptr && *pageSeparator != '\0') {
     AppendString(pageSeparator);
   }
-
-  return true;
-}
-
-/**********************************************************************
- * HOcr Text Renderer interface implementation
- **********************************************************************/
-TessHOcrRenderer::TessHOcrRenderer(const char *outputbase)
-    : TessResultRenderer(outputbase, "hocr") {
-    font_info_ = false;
-}
-
-TessHOcrRenderer::TessHOcrRenderer(const char *outputbase, bool font_info)
-    : TessResultRenderer(outputbase, "hocr") {
-    font_info_ = font_info;
-}
-
-bool TessHOcrRenderer::BeginDocumentHandler() {
-  AppendString(
-      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-      "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n"
-      "    \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n"
-      "<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"en\" "
-      "lang=\"en\">\n <head>\n  <title>");
-  AppendString(title());
-  AppendString(
-      "</title>\n"
-      "<meta http-equiv=\"Content-Type\" content=\"text/html;"
-      "charset=utf-8\" />\n"
-      "  <meta name='ocr-system' content='tesseract " PACKAGE_VERSION
-              "' />\n"
-      "  <meta name='ocr-capabilities' content='ocr_page ocr_carea ocr_par"
-      " ocr_line ocrx_word ocrp_wconf");
-  if (font_info_)
-    AppendString(
-      " ocrp_lang ocrp_dir ocrp_font ocrp_fsize");
-  AppendString(
-      "'/>\n"
-      "</head>\n<body>\n");
-
-  return true;
-}
-
-bool TessHOcrRenderer::EndDocumentHandler() {
-  AppendString(" </body>\n</html>\n");
-
-  return true;
-}
-
-bool TessHOcrRenderer::AddImageHandler(TessBaseAPI* api) {
-  const std::unique_ptr<const char[]> hocr(api->GetHOCRText(imagenum()));
-  if (hocr == nullptr) return false;
-
-  AppendString(hocr.get());
 
   return true;
 }

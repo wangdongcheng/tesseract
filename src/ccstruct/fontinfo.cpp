@@ -2,7 +2,6 @@
 // File:        fontinfo.cpp
 // Description: Font information classes abstracted from intproto.h/cpp.
 // Author:      rays@google.com (Ray Smith)
-// Created:     Wed May 18 10:39:01 PDT 2011
 //
 // (C) Copyright 2011, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,8 +37,9 @@ bool FontInfo::DeSerialize(TFile* fp) {
 }
 
 FontInfoTable::FontInfoTable() {
-  set_compare_callback(NewPermanentTessCallback(CompareFontInfo));
-  set_clear_callback(NewPermanentTessCallback(FontInfoDeleteCallback));
+  using namespace std::placeholders; // for _1, _2
+  set_compare_callback(std::bind(CompareFontInfo, _1, _2));
+  set_clear_callback(std::bind(FontInfoDeleteCallback, _1));
 }
 
 FontInfoTable::~FontInfoTable() {
@@ -83,8 +83,9 @@ bool FontInfoTable::SetContainsMultipleFontProperties(
 
 // Moves any non-empty FontSpacingInfo entries from other to this.
 void FontInfoTable::MoveSpacingInfoFrom(FontInfoTable* other) {
-  set_compare_callback(NewPermanentTessCallback(CompareFontInfo));
-  set_clear_callback(NewPermanentTessCallback(FontInfoDeleteCallback));
+  using namespace std::placeholders; // for _1, _2
+  set_compare_callback(std::bind(CompareFontInfo, _1, _2));
+  set_clear_callback(std::bind(FontInfoDeleteCallback, _1));
   for (int i = 0; i < other->size(); ++i) {
     GenericVector<FontSpacingInfo*>* spacing_vec = other->get(i).spacing_vec;
     if (spacing_vec != nullptr) {
@@ -94,7 +95,7 @@ void FontInfoTable::MoveSpacingInfoFrom(FontInfoTable* other) {
         push_back(other->get(i));
         other->get(i).name = nullptr;
       } else {
-        delete [] get(target_index).spacing_vec;
+        delete get(target_index).spacing_vec;
         get(target_index).spacing_vec = other->get(i).spacing_vec;
       }
       other->get(i).spacing_vec = nullptr;
@@ -105,8 +106,9 @@ void FontInfoTable::MoveSpacingInfoFrom(FontInfoTable* other) {
 // Moves this to the target unicity table.
 void FontInfoTable::MoveTo(UnicityTable<FontInfo>* target) {
   target->clear();
-  target->set_compare_callback(NewPermanentTessCallback(CompareFontInfo));
-  target->set_clear_callback(NewPermanentTessCallback(FontInfoDeleteCallback));
+  using namespace std::placeholders; // for _1, _2
+  target->set_compare_callback(std::bind(CompareFontInfo, _1, _2));
+  target->set_clear_callback(std::bind(FontInfoDeleteCallback, _1));
   for (int i = 0; i < size(); ++i) {
     // Bit copy the FontInfo and steal all the pointers.
     target->push_back(get(i));
@@ -140,8 +142,10 @@ void FontInfoDeleteCallback(FontInfo f) {
   if (f.spacing_vec != nullptr) {
     f.spacing_vec->delete_data_pointers();
     delete f.spacing_vec;
+    f.spacing_vec = nullptr;
   }
   delete[] f.name;
+  f.name = nullptr;
 }
 void FontSetDeleteCallback(FontSet fs) {
   delete[] fs.configs;
@@ -173,7 +177,7 @@ bool read_spacing_info(TFile* f, FontInfo* fi) {
   if (vec_size == 0) return true;
   fi->init_spacing(vec_size);
   for (int i = 0; i < vec_size; ++i) {
-    FontSpacingInfo *fs = new FontSpacingInfo();
+    auto *fs = new FontSpacingInfo();
     if (!f->DeSerialize(&fs->x_gap_before) ||
         !f->DeSerialize(&fs->x_gap_after) ||
         !f->DeSerialize(&kern_size)) {

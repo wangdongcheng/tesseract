@@ -16,6 +16,8 @@
  *
  **********************************************************************/
 
+#define _USE_MATH_DEFINES // for M_PI
+
 // Include automatically generated configuration file if running autoconf.
 #ifdef HAVE_CONFIG_H
 #include "config_auto.h"
@@ -27,10 +29,6 @@
 #endif
 
 #if defined(_WIN32)
-#if defined(__MINGW32__)
-// workaround for stdlib.h with -std=c++11 for _splitpath and _MAX_FNAME
-#undef __STRICT_ANSI__
-#endif  // __MINGW32__
 #include <fcntl.h>
 #include <io.h>
 #else
@@ -41,17 +39,23 @@
 #include <unistd.h>
 #endif  // _WIN32
 
-#include <clocale>             // for LC_ALL, LC_CTYPE, LC_NUMERIC
 #include <cmath>               // for round, M_PI
 #include <cstdint>             // for int32_t
 #include <cstring>             // for strcmp, strcpy
 #include <fstream>             // for size_t
 #include <iostream>            // for std::cin
+#include <locale>              // for std::locale::classic
 #include <memory>              // for std::unique_ptr
 #include <set>                 // for std::pair
+#include <sstream>             // for std::stringstream
 #include <vector>              // for std::vector
+#ifdef HAVE_LIBCURL
+#include <curl/curl.h>
+#endif
 #include "allheaders.h"        // for pixDestroy, boxCreate, boxaAddBox, box...
+#ifndef DISABLED_LEGACY_ENGINE
 #include "blobclass.h"         // for ExtractFontName
+#endif
 #include "boxword.h"           // for BoxWord
 #include "config_auto.h"       // for PACKAGE_VERSION
 #include "coutln.h"            // for C_OUTLINE_IT, C_OUTLINE_LIST
@@ -59,18 +63,20 @@
 #include "dict.h"              // for Dict
 #include "edgblob.h"           // for extract_edges
 #include "elst.h"              // for ELIST_ITERATOR, ELISTIZE, ELISTIZEH
-#include "environ.h"           // for l_uint8, FALSE, TRUE
+#include "environ.h"           // for l_uint8
 #include "equationdetect.h"    // for EquationDetect
 #include "errcode.h"           // for ASSERT_HOST
-#include "globaloc.h"          // for SavePixForCrash, signal_exit
 #include "helpers.h"           // for IntCastRounded, chomp_string
-#include "host.h"              // for BOOL8
-#include "imageio.h"           // for IFF_TIFF_G4, IFF_TIFF, IFF_TIFF_G3
+#include "imageio.h"           // for IFF_TIFF_G4, IFF_TIFF, IFF_TIFF_G3, ...
+#ifndef DISABLED_LEGACY_ENGINE
 #include "intfx.h"             // for INT_FX_RESULT_STRUCT
+#endif
 #include "mutableiterator.h"   // for MutableIterator
 #include "normalis.h"          // for kBlnBaselineOffset, kBlnXHeight
 #include "ocrclass.h"          // for ETEXT_DESC
-#include "openclwrapper.h"     // for PERF_COUNT_END, PERF_COUNT_START, PERF...
+#if defined(USE_OPENCL)
+#include "openclwrapper.h"     // for OpenclDevice
+#endif
 #include "osdetect.h"          // for OSResults, OSBestResult, OrientationId...
 #include "pageres.h"           // for PAGE_RES_IT, WERD_RES, PAGE_RES, CR_DE...
 #include "paragraphs.h"        // for DetectParagraphs
@@ -89,7 +95,8 @@
 #include "tprintf.h"           // for tprintf
 #include "werd.h"              // for WERD, WERD_IT, W_FUZZY_NON, W_FUZZY_SP
 
-BOOL_VAR(stream_filelist, FALSE, "Stream a filelist from stdin");
+static BOOL_VAR(stream_filelist, false, "Stream a filelist from stdin");
+static STRING_VAR(document_title, "", "Title of output document (used for hOCR and PDF output)");
 
 namespace tesseract {
 
@@ -105,11 +112,11 @@ const char kUNLVSuspect = '^';
  * Filename used for input image file, from which to derive a name to search
  * for a possible UNLV zone file, if none is specified by SetInputName.
  */
-const char* kInputFile = "noname.tif";
+static const char* kInputFile = "noname.tif";
 /**
  * Temp file used for storing current parameters before applying retry values.
  */
-const char* kOldVarsFile = "failed_vars.txt";
+static const char* kOldVarsFile = "failed_vars.txt";
 /** Max string length of an int.  */
 const int kMaxIntSize = 22;
 
@@ -118,11 +125,11 @@ const int kMaxIntSize = 22;
 static void addAvailableLanguages(const STRING &datadir, const STRING &base,
                                   GenericVector<STRING>* langs)
 {
-  const STRING base2 = (base.string()[0] == '\0') ? base : base + "/";
+  const STRING base2 = (base.c_str()[0] == '\0') ? base : base + "/";
   const size_t extlen = sizeof(kTrainedDataSuffix);
 #ifdef _WIN32
     WIN32_FIND_DATA data;
-    HANDLE handle = FindFirstFile((datadir + base2 + "*").string(), &data);
+    HANDLE handle = FindFirstFile((datadir + base2 + "*").c_str(), &data);
     if (handle != INVALID_HANDLE_VALUE) {
       BOOL result = TRUE;
       for (; result;) {
@@ -146,7 +153,7 @@ static void addAvailableLanguages(const STRING &datadir, const STRING &base,
       FindClose(handle);
     }
 #else  // _WIN32
-  DIR* dir = opendir((datadir + base).string());
+  DIR* dir = opendir((datadir + base).c_str());
   if (dir != nullptr) {
     dirent *de;
     while ((de = readdir(dir))) {
@@ -154,7 +161,7 @@ static void addAvailableLanguages(const STRING &datadir, const STRING &base,
       // Skip '.', '..', and hidden files
       if (name[0] != '.') {
         struct stat st;
-        if (stat((datadir + base2 + name).string(), &st) == 0 &&
+        if (stat((datadir + base2 + name).c_str(), &st) == 0 &&
             (st.st_mode & S_IFDIR) == S_IFDIR) {
           addAvailableLanguages(datadir, base2 + name, langs);
         } else {
@@ -174,8 +181,8 @@ static void addAvailableLanguages(const STRING &datadir, const STRING &base,
 
 // Compare two STRING values (used for sorting).
 static int CompareSTRING(const void* p1, const void* p2) {
-  const STRING* s1 = static_cast<const STRING*>(p1);
-  const STRING* s2 = static_cast<const STRING*>(p2);
+  const auto* s1 = static_cast<const STRING*>(p1);
+  const auto* s2 = static_cast<const STRING*>(p2);
   return strcmp(s1->c_str(), s2->c_str());
 }
 
@@ -204,13 +211,16 @@ TessBaseAPI::TessBaseAPI()
       rect_height_(0),
       image_width_(0),
       image_height_(0) {
-  const char *locale;
-  locale = std::setlocale(LC_ALL, nullptr);
-  ASSERT_HOST(!strcmp(locale, "C"));
-  locale = std::setlocale(LC_CTYPE, nullptr);
-  ASSERT_HOST(!strcmp(locale, "C"));
-  locale = std::setlocale(LC_NUMERIC, nullptr);
-  ASSERT_HOST(!strcmp(locale, "C"));
+#if defined(DEBUG)
+  // The Tesseract executables would use the "C" locale by default,
+  // but other software which is linked against the Tesseract library
+  // typically uses the locale from the user's environment.
+  // Here the default is overridden to allow debugging of potential
+  // problems caused by the locale settings.
+
+  // Use the current locale if building debug code.
+  std::locale::global(std::locale(""));
+#endif
 }
 
 TessBaseAPI::~TessBaseAPI() {
@@ -231,14 +241,8 @@ const char* TessBaseAPI::Version() {
  * and returns sizeof(cl_device_id)
  * otherwise *device=nullptr and returns 0.
  */
-#ifdef USE_OPENCL
-#ifdef USE_DEVICE_SELECTION
-#include "opencl_device_selection.h"
-#endif
-#endif
 size_t TessBaseAPI::getOpenCLDevice(void **data) {
 #ifdef USE_OPENCL
-#ifdef USE_DEVICE_SELECTION
   ds_device device = OpenclDevice::getDeviceSelection();
   if (device.type == DS_DEVICE_OPENCL_DEVICE) {
     *data = new cl_device_id;
@@ -246,29 +250,9 @@ size_t TessBaseAPI::getOpenCLDevice(void **data) {
     return sizeof(cl_device_id);
   }
 #endif
-#endif
 
   *data = nullptr;
   return 0;
-}
-
-/**
- * Writes the thresholded image to stderr as a PBM file on receipt of a
- * SIGSEGV, SIGFPE, or SIGBUS signal. (Linux/Unix only).
- */
-void TessBaseAPI::CatchSignals() {
-#ifdef __linux__
-  struct sigaction action;
-  memset(&action, 0, sizeof(action));
-  action.sa_handler = &signal_exit;
-  action.sa_flags = SA_RESETHAND;
-  sigaction(SIGSEGV, &action, nullptr);
-  sigaction(SIGFPE, &action, nullptr);
-  sigaction(SIGBUS, &action, nullptr);
-#else
-  // Warn API users that an implementation is needed.
-  tprintf("CatchSignals has no non-linux implementation!\n");
-#endif
 }
 
 /**
@@ -303,7 +287,7 @@ bool TessBaseAPI::SetDebugVariable(const char* name, const char* value) {
 }
 
 bool TessBaseAPI::GetIntVariable(const char *name, int *value) const {
-  IntParam *p = ParamUtils::FindParam<IntParam>(
+  auto *p = ParamUtils::FindParam<IntParam>(
       name, GlobalParams()->int_params, tesseract_->params()->int_params);
   if (p == nullptr) return false;
   *value = (int32_t)(*p);
@@ -311,21 +295,21 @@ bool TessBaseAPI::GetIntVariable(const char *name, int *value) const {
 }
 
 bool TessBaseAPI::GetBoolVariable(const char *name, bool *value) const {
-  BoolParam *p = ParamUtils::FindParam<BoolParam>(
+  auto *p = ParamUtils::FindParam<BoolParam>(
       name, GlobalParams()->bool_params, tesseract_->params()->bool_params);
   if (p == nullptr) return false;
-  *value = (BOOL8)(*p);
+  *value = bool(*p);
   return true;
 }
 
 const char *TessBaseAPI::GetStringVariable(const char *name) const {
-  StringParam *p = ParamUtils::FindParam<StringParam>(
+  auto *p = ParamUtils::FindParam<StringParam>(
       name, GlobalParams()->string_params, tesseract_->params()->string_params);
-  return (p != nullptr) ? p->string() : nullptr;
+  return (p != nullptr) ? p->c_str() : nullptr;
 }
 
 bool TessBaseAPI::GetDoubleVariable(const char *name, double *value) const {
-  DoubleParam *p = ParamUtils::FindParam<DoubleParam>(
+  auto *p = ParamUtils::FindParam<DoubleParam>(
       name, GlobalParams()->double_params, tesseract_->params()->double_params);
   if (p == nullptr) return false;
   *value = (double)(*p);
@@ -343,7 +327,7 @@ void TessBaseAPI::PrintVariables(FILE *fp) const {
 }
 
 /**
- * The datapath must be the name of the data directory (no ending /) or
+ * The datapath must be the name of the data directory or
  * some other file in which the data directory resides (for instance argv[0].)
  * The language is (usually) an ISO 639-3 string or nullptr will default to eng.
  * If numeric_mode is true, then only digits and Roman numerals will
@@ -367,7 +351,6 @@ int TessBaseAPI::Init(const char* data, int data_size, const char* language,
                       const GenericVector<STRING>* vars_vec,
                       const GenericVector<STRING>* vars_values,
                       bool set_only_non_debug_params, FileReader reader) {
-  PERF_COUNT_START("TessBaseAPI::Init")
   // Default language is "eng".
   if (language == nullptr) language = "eng";
   STRING datapath = data_size == 0 ? data : language;
@@ -383,12 +366,10 @@ int TessBaseAPI::Init(const char* data, int data_size, const char* language,
     delete tesseract_;
     tesseract_ = nullptr;
   }
-  // PERF_COUNT_SUB("delete tesseract_")
 #ifdef USE_OPENCL
   OpenclDevice od;
   od.InitEnv();
 #endif
-  PERF_COUNT_SUB("OD::InitEnv()")
   bool reset_classifier = true;
   if (tesseract_ == nullptr) {
     reset_classifier = false;
@@ -399,22 +380,21 @@ int TessBaseAPI::Init(const char* data, int data_size, const char* language,
       mgr.LoadMemBuffer(language, data, data_size);
     }
     if (tesseract_->init_tesseract(
-            datapath.string(),
-            output_file_ != nullptr ? output_file_->string() : nullptr,
+            datapath.c_str(),
+            output_file_ != nullptr ? output_file_->c_str() : nullptr,
             language, oem, configs, configs_size, vars_vec, vars_values,
             set_only_non_debug_params, &mgr) != 0) {
       return -1;
     }
   }
 
-  PERF_COUNT_SUB("update tesseract_")
   // Update datapath and language requested for the last valid initialization.
   if (datapath_ == nullptr)
     datapath_ = new STRING(datapath);
   else
     *datapath_ = datapath;
-  if ((strcmp(datapath_->string(), "") == 0) &&
-      (strcmp(tesseract_->datadir.string(), "") != 0))
+  if ((strcmp(datapath_->c_str(), "") == 0) &&
+      (strcmp(tesseract_->datadir.c_str(), "") != 0))
      *datapath_ = tesseract_->datadir;
 
   if (language_ == nullptr)
@@ -424,14 +404,11 @@ int TessBaseAPI::Init(const char* data, int data_size, const char* language,
   last_oem_requested_ = oem;
 
 #ifndef DISABLED_LEGACY_ENGINE
-  // PERF_COUNT_SUB("update last_oem_requested_")
   // For same language and datapath, just reset the adaptive classifier.
   if (reset_classifier) {
     tesseract_->ResetAdaptiveClassifier();
-    PERF_COUNT_SUB("tesseract_->ResetAdaptiveClassifier()")
   }
 #endif  // ndef DISABLED_LEGACY_ENGINE
-  PERF_COUNT_END
   return 0;
 }
 
@@ -444,8 +421,8 @@ int TessBaseAPI::Init(const char* data, int data_size, const char* language,
  * The returned string should NOT be deleted.
  */
 const char* TessBaseAPI::GetInitLanguagesAsString() const {
-  return (language_ == nullptr || language_->string() == nullptr) ?
-      "" : language_->string();
+  return (language_ == nullptr || language_->c_str() == nullptr) ?
+      "" : language_->c_str();
 }
 
 /**
@@ -620,9 +597,9 @@ void TessBaseAPI::SetImage(Pix* pix) {
   if (InternalSetImage()) {
     if (pixGetSpp(pix) == 4 && pixGetInputFormat(pix) == IFF_PNG) {
       // remove alpha channel from png
-      PIX* p1 = pixRemoveAlpha(pix);
+      Pix* p1 = pixRemoveAlpha(pix);
       pixSetSpp(p1, 3);
-      pix = pixCopy(nullptr, p1);
+      (void)pixCopy(pix, p1);
       pixDestroy(&p1);
     }
     thresholder_->SetImage(pix);
@@ -732,24 +709,23 @@ Boxa* TessBaseAPI::GetComponentImages(PageIteratorLevel level,
   int component_count = 0;
   int left, top, right, bottom;
 
-  TessResultCallback<bool>* get_bbox = nullptr;
   if (raw_image) {
     // Get bounding box in original raw image with padding.
-    get_bbox = NewPermanentTessCallback(page_it, &PageIterator::BoundingBox,
-                                        level, raw_padding,
-                                        &left, &top, &right, &bottom);
+    do {
+      if (page_it->BoundingBox(level, raw_padding,
+                               &left, &top, &right, &bottom) &&
+          (!text_only || PTIsTextType(page_it->BlockType())))
+        ++component_count;
+    } while (page_it->Next(level));
   } else {
     // Get bounding box from binarized imaged. Note that this could be
     // differently scaled from the original image.
-    get_bbox = NewPermanentTessCallback(page_it,
-                                        &PageIterator::BoundingBoxInternal,
-                                        level, &left, &top, &right, &bottom);
+    do {
+      if (page_it->BoundingBoxInternal(level, &left, &top, &right, &bottom) &&
+          (!text_only || PTIsTextType(page_it->BlockType())))
+        ++component_count;
+    } while (page_it->Next(level));
   }
-  do {
-    if (get_bbox->Run() &&
-        (!text_only || PTIsTextType(page_it->BlockType())))
-      ++component_count;
-  } while (page_it->Next(level));
 
   Boxa* boxa = boxaCreate(component_count);
   if (pixa != nullptr)
@@ -764,7 +740,15 @@ Boxa* TessBaseAPI::GetComponentImages(PageIteratorLevel level,
   int component_index = 0;
   page_it->Begin();
   do {
-    if (get_bbox->Run() &&
+    bool got_bounding_box;
+    if (raw_image) {
+      got_bounding_box =
+        page_it->BoundingBox(level, raw_padding, &left, &top, &right, &bottom);
+    } else {
+      got_bounding_box =
+        page_it->BoundingBoxInternal(level, &left, &top, &right, &bottom);
+    }
+    if (got_bounding_box &&
         (!text_only || PTIsTextType(page_it->BlockType()))) {
       Box* lbox = boxCreate(left, top, right - left, bottom - top);
       boxaAddBox(boxa, lbox, L_INSERT);
@@ -795,7 +779,6 @@ Boxa* TessBaseAPI::GetComponentImages(PageIteratorLevel level,
     }
   } while (page_it->Next(level));
   delete page_it;
-  delete get_bbox;
   return boxa;
 }
 
@@ -885,12 +868,12 @@ int TessBaseAPI::Recognize(ETEXT_DESC* monitor) {
 
   if (truth_cb_ != nullptr) {
     tesseract_->wordrec_run_blamer.set_value(true);
-    PageIterator *page_it = new PageIterator(
+    auto *page_it = new PageIterator(
             page_res_, tesseract_, thresholder_->GetScaleFactor(),
             thresholder_->GetScaledYResolution(),
             rect_left_, rect_top_, rect_width_, rect_height_);
-    truth_cb_->Run(tesseract_->getDict().getUnicharset(),
-                   image_height_, page_it, this->tesseract()->pix_grey());
+    truth_cb_(tesseract_->getDict().getUnicharset(),
+              image_height_, page_it, this->tesseract()->pix_grey());
     delete page_it;
   }
 
@@ -1011,7 +994,7 @@ bool TessBaseAPI::ProcessPagesFileList(FILE *flist,
   }
 
   // Begin producing output
-  if (renderer && !renderer->BeginDocument(unknown_title_)) {
+  if (renderer && !renderer->BeginDocument(document_title.c_str())) {
     return false;
   }
 
@@ -1057,10 +1040,14 @@ bool TessBaseAPI::ProcessPagesMultipageTiff(const l_uint8 *data,
   int page = (tessedit_page_number >= 0) ? tessedit_page_number : 0;
   size_t offset = 0;
   for (; ; ++page) {
-    if (tessedit_page_number >= 0)
+    if (tessedit_page_number >= 0) {
       page = tessedit_page_number;
-    pix = (data) ? pixReadMemFromMultipageTiff(data, size, &offset)
-                 : pixReadFromMultipageTiff(filename, &offset);
+      pix = (data) ? pixReadMemTiff(data, size, page)
+                   : pixReadTiff(filename, page);
+    } else {
+      pix = (data) ? pixReadMemFromMultipageTiff(data, size, &offset)
+                   : pixReadFromMultipageTiff(filename, &offset);
+    }
     if (pix == nullptr) break;
     tprintf("Page %d\n", page + 1);
     char page_str[kMaxIntSize];
@@ -1090,12 +1077,21 @@ bool TessBaseAPI::ProcessPages(const char* filename, const char* retry_config,
   if (result) {
     if (tesseract_->tessedit_train_from_boxes &&
         !tesseract_->WriteTRFile(*output_file_)) {
-      tprintf("Write of TR file failed: %s\n", output_file_->string());
+      tprintf("Write of TR file failed: %s\n", output_file_->c_str());
       return false;
     }
   }
   #endif  // ndef DISABLED_LEGACY_ENGINE
   return result;
+}
+
+static size_t
+WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
+{
+  size = size * nmemb;
+  std::string* buf = reinterpret_cast<std::string*>(userp);
+  buf->append(reinterpret_cast<const char*>(contents), size);
+  return size;
 }
 
 // In the ideal scenario, Tesseract will start working on data as soon
@@ -1113,7 +1109,6 @@ bool TessBaseAPI::ProcessPagesInternal(const char* filename,
                                        const char* retry_config,
                                        int timeout_millisec,
                                        TessResultRenderer* renderer) {
-  PERF_COUNT_START("ProcessPages")
   bool stdInput = !strcmp(filename, "stdin") || !strcmp(filename, "-");
   if (stdInput) {
 #ifdef WIN32
@@ -1137,6 +1132,31 @@ bool TessBaseAPI::ProcessPagesInternal(const char* filename,
     buf.assign((std::istreambuf_iterator<char>(std::cin)),
                (std::istreambuf_iterator<char>()));
     data = reinterpret_cast<const l_uint8 *>(buf.data());
+  } else if (strncmp(filename, "http:", 5) == 0 ||
+             strncmp(filename, "https:", 6) == 0 ) {
+    // Get image or image list by URL.
+#ifdef HAVE_LIBCURL
+    CURL* curl = curl_easy_init();
+    if (curl ==  nullptr) {
+      fprintf(stderr, "Error, curl_easy_init failed\n");
+      return false;
+    } else {
+      CURLcode curlcode;
+      curlcode = curl_easy_setopt(curl, CURLOPT_URL, filename);
+      ASSERT_HOST(curlcode == CURLE_OK);
+      curlcode = curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+      ASSERT_HOST(curlcode == CURLE_OK);
+      curlcode = curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+      ASSERT_HOST(curlcode == CURLE_OK);
+      curlcode = curl_easy_perform(curl);
+      ASSERT_HOST(curlcode == CURLE_OK);
+      curl_easy_cleanup(curl);
+      data = reinterpret_cast<const l_uint8 *>(buf.data());
+    }
+#else
+    fprintf(stderr, "Error, this tesseract has no URL support\n");
+    return false;
+#endif
   } else {
     // Check whether the input file can be read.
     if (FILE* file = fopen(filename, "rb")) {
@@ -1150,14 +1170,14 @@ bool TessBaseAPI::ProcessPagesInternal(const char* filename,
 
   // Here is our autodetection
   int format;
-  int r = (stdInput) ?
+  int r = (data != nullptr) ?
       findFileFormatBuffer(data, &format) :
       findFileFormat(filename, &format);
 
   // Maybe we have a filelist
   if (r != 0 || format == IFF_UNKNOWN) {
     STRING s;
-    if (stdInput) {
+    if (data != nullptr) {
       s = buf.c_str();
     } else {
       std::ifstream t(filename);
@@ -1174,19 +1194,22 @@ bool TessBaseAPI::ProcessPagesInternal(const char* filename,
   bool tiff = (format == IFF_TIFF || format == IFF_TIFF_PACKBITS ||
                format == IFF_TIFF_RLE || format == IFF_TIFF_G3 ||
                format == IFF_TIFF_G4 || format == IFF_TIFF_LZW ||
+#if LIBLEPT_MAJOR_VERSION > 1 || LIBLEPT_MINOR_VERSION > 76
+               format == IFF_TIFF_JPEG ||
+#endif
                format == IFF_TIFF_ZIP);
 
   // Fail early if we can, before producing any output
   Pix *pix = nullptr;
   if (!tiff) {
-    pix = (stdInput) ? pixReadMem(data, buf.size()) : pixRead(filename);
+    pix = (data != nullptr) ? pixReadMem(data, buf.size()) : pixRead(filename);
     if (pix == nullptr) {
       return false;
     }
   }
 
   // Begin the output
-  if (renderer && !renderer->BeginDocument(unknown_title_)) {
+  if (renderer && !renderer->BeginDocument(document_title.c_str())) {
     pixDestroy(&pix);
     return false;
   }
@@ -1206,14 +1229,12 @@ bool TessBaseAPI::ProcessPagesInternal(const char* filename,
   if (!r || (renderer && !renderer->EndDocument())) {
     return false;
   }
-  PERF_COUNT_END
   return true;
 }
 
 bool TessBaseAPI::ProcessPage(Pix* pix, int page_index, const char* filename,
                               const char* retry_config, int timeout_millisec,
                               TessResultRenderer* renderer) {
-  PERF_COUNT_START("ProcessPage")
   SetInputName(filename);
   SetImage(pix);
   bool failed = false;
@@ -1271,7 +1292,6 @@ bool TessBaseAPI::ProcessPage(Pix* pix, int page_index, const char* filename,
     failed = !renderer->AddImage(this);
   }
 
-  PERF_COUNT_END
   return !failed;
 }
 
@@ -1335,368 +1355,19 @@ char* TessBaseAPI::GetUTF8Text() {
     text += para_text.get();
   } while (it->Next(RIL_PARA));
   char* result = new char[text.length() + 1];
-  strncpy(result, text.string(), text.length() + 1);
+  strncpy(result, text.c_str(), text.length() + 1);
   delete it;
   return result;
 }
 
-/**
- * Gets the block orientation at the current iterator position.
- */
-static tesseract::Orientation GetBlockTextOrientation(const PageIterator *it) {
-  tesseract::Orientation orientation;
-  tesseract::WritingDirection writing_direction;
-  tesseract::TextlineOrder textline_order;
-  float deskew_angle;
-  it->Orientation(&orientation, &writing_direction, &textline_order,
-                  &deskew_angle);
-  return orientation;
-}
-
-/**
- * Fits a line to the baseline at the given level, and appends its coefficients
- * to the hOCR string.
- * NOTE: The hOCR spec is unclear on how to specify baseline coefficients for
- * rotated textlines. For this reason, on textlines that are not upright, this
- * method currently only inserts a 'textangle' property to indicate the rotation
- * direction and does not add any baseline information to the hocr string.
- */
-static void AddBaselineCoordsTohOCR(const PageIterator *it,
-                                    PageIteratorLevel level,
-                                    STRING* hocr_str) {
-  tesseract::Orientation orientation = GetBlockTextOrientation(it);
-  if (orientation != ORIENTATION_PAGE_UP) {
-    hocr_str->add_str_int("; textangle ", 360 - orientation * 90);
-    return;
-  }
-
-  int left, top, right, bottom;
-  it->BoundingBox(level, &left, &top, &right, &bottom);
-
-  // Try to get the baseline coordinates at this level.
-  int x1, y1, x2, y2;
-  if (!it->Baseline(level, &x1, &y1, &x2, &y2))
-    return;
-  // Following the description of this field of the hOCR spec, we convert the
-  // baseline coordinates so that "the bottom left of the bounding box is the
-  // origin".
-  x1 -= left;
-  x2 -= left;
-  y1 -= bottom;
-  y2 -= bottom;
-
-  // Now fit a line through the points so we can extract coefficients for the
-  // equation:  y = p1 x + p0
-  double p1 = 0;
-  double p0 = 0;
-  if (x1 == x2) {
-    // Problem computing the polynomial coefficients.
-    return;
-  }
-  p1 = (y2 - y1) / static_cast<double>(x2 - x1);
-  p0 = y1 - static_cast<double>(p1 * x1);
-
-  hocr_str->add_str_double("; baseline ", round(p1 * 1000.0) / 1000.0);
-  hocr_str->add_str_double(" ", round(p0 * 1000.0) / 1000.0);
-}
-
-static void AddIdTohOCR(STRING* hocr_str, const std::string base, int num1,
-                        int num2) {
-  const size_t BUFSIZE = 64;
-  char id_buffer[BUFSIZE];
-  if (num2 >= 0) {
-    snprintf(id_buffer, BUFSIZE - 1, "%s_%d_%d", base.c_str(), num1, num2);
-  } else {
-    snprintf(id_buffer, BUFSIZE - 1, "%s_%d", base.c_str(), num1);
-  }
-  id_buffer[BUFSIZE - 1] = '\0';
-  *hocr_str += " id='";
-  *hocr_str += id_buffer;
-  *hocr_str += "'";
-}
-
-static void AddIdTohOCR(STRING* hocr_str, const std::string base, int num1,
-  int num2, int num3) {
-  const size_t BUFSIZE = 64;
-  char id_buffer[BUFSIZE];
-  snprintf(id_buffer, BUFSIZE - 1, "%s_%d_%d_%d", base.c_str(), num1, num2,num3);
-  id_buffer[BUFSIZE - 1] = '\0';
-  *hocr_str += " id='";
-  *hocr_str += id_buffer;
-  *hocr_str += "'";
-}
-
-static void AddBoxTohOCR(const ResultIterator* it, PageIteratorLevel level,
-                         STRING* hocr_str) {
-  int left, top, right, bottom;
-  it->BoundingBox(level, &left, &top, &right, &bottom);
-  // This is the only place we use double quotes instead of single quotes,
-  // but it may too late to change for consistency
-  hocr_str->add_str_int(" title=\"bbox ", left);
-  hocr_str->add_str_int(" ", top);
-  hocr_str->add_str_int(" ", right);
-  hocr_str->add_str_int(" ", bottom);
-  // Add baseline coordinates & heights for textlines only.
-  if (level == RIL_TEXTLINE) {
-    AddBaselineCoordsTohOCR(it, level, hocr_str);
-    // add custom height measures
-    float row_height, descenders, ascenders;  // row attributes
-    it->RowAttributes(&row_height, &descenders, &ascenders);
-    // TODO(rays): Do we want to limit these to a single decimal place?
-    hocr_str->add_str_double("; x_size ", row_height);
-    hocr_str->add_str_double("; x_descenders ", descenders * -1);
-    hocr_str->add_str_double("; x_ascenders ", ascenders);
-  }
-  *hocr_str += "\">";
-}
-
 static void AddBoxToTSV(const PageIterator* it, PageIteratorLevel level,
-                        STRING* hocr_str) {
+                        STRING* text) {
   int left, top, right, bottom;
   it->BoundingBox(level, &left, &top, &right, &bottom);
-  hocr_str->add_str_int("\t", left);
-  hocr_str->add_str_int("\t", top);
-  hocr_str->add_str_int("\t", right - left);
-  hocr_str->add_str_int("\t", bottom - top);
-}
-
-/**
- * Make a HTML-formatted string with hOCR markup from the internal
- * data structures.
- * page_number is 0-based but will appear in the output as 1-based.
- * Image name/input_file_ can be set by SetInputName before calling
- * GetHOCRText
- * STL removed from original patch submission and refactored by rays.
- * Returned string must be freed with the delete [] operator.
- */
-char* TessBaseAPI::GetHOCRText(int page_number) {
-  return GetHOCRText(nullptr, page_number);
-}
-
-/**
- * Make a HTML-formatted string with hOCR markup from the internal
- * data structures.
- * page_number is 0-based but will appear in the output as 1-based.
- * Image name/input_file_ can be set by SetInputName before calling
- * GetHOCRText
- * STL removed from original patch submission and refactored by rays.
- * Returned string must be freed with the delete [] operator.
- */
-char* TessBaseAPI::GetHOCRText(ETEXT_DESC* monitor, int page_number) {
-  if (tesseract_ == nullptr || (page_res_ == nullptr && Recognize(monitor) < 0))
-    return nullptr;
-
-  int lcnt = 1, bcnt = 1, pcnt = 1, wcnt = 1, tcnt = 1, gcnt = 1;
-  int page_id = page_number + 1;  // hOCR uses 1-based page numbers.
-  bool para_is_ltr = true;        // Default direction is LTR
-  const char* paragraph_lang = nullptr;
-  bool font_info = false;
-  GetBoolVariable("hocr_font_info", &font_info);
-
-  STRING hocr_str("");
-
-  if (input_file_ == nullptr)
-      SetInputName(nullptr);
-
-#ifdef _WIN32
-  // convert input name from ANSI encoding to utf-8
-  int str16_len =
-      MultiByteToWideChar(CP_ACP, 0, input_file_->string(), -1, nullptr, 0);
-  wchar_t *uni16_str = new WCHAR[str16_len];
-  str16_len = MultiByteToWideChar(CP_ACP, 0, input_file_->string(), -1,
-                                  uni16_str, str16_len);
-  int utf8_len = WideCharToMultiByte(CP_UTF8, 0, uni16_str, str16_len, nullptr, 0,
-                                     nullptr, nullptr);
-  char *utf8_str = new char[utf8_len];
-  WideCharToMultiByte(CP_UTF8, 0, uni16_str, str16_len, utf8_str,
-                      utf8_len, nullptr, nullptr);
-  *input_file_ = utf8_str;
-  delete[] uni16_str;
-  delete[] utf8_str;
-#endif
-
-  hocr_str += "  <div class='ocr_page'";
-  AddIdTohOCR(&hocr_str, "page", page_id, -1);
-  hocr_str += " title='image \"";
-  if (input_file_) {
-    hocr_str += HOcrEscape(input_file_->string());
-  } else {
-    hocr_str += "unknown";
-  }
-  hocr_str.add_str_int("\"; bbox ", rect_left_);
-  hocr_str.add_str_int(" ", rect_top_);
-  hocr_str.add_str_int(" ", rect_width_);
-  hocr_str.add_str_int(" ", rect_height_);
-  hocr_str.add_str_int("; ppageno ", page_number);
-  hocr_str += "'>\n";
-
-  ResultIterator *res_it = GetIterator();
-  while (!res_it->Empty(RIL_BLOCK)) {
-    if (res_it->Empty(RIL_WORD)) {
-      res_it->Next(RIL_WORD);
-      continue;
-    }
-
-    // Open any new block/paragraph/textline.
-    if (res_it->IsAtBeginningOf(RIL_BLOCK)) {
-      para_is_ltr = true;  // reset to default direction
-      hocr_str += "   <div class='ocr_carea'";
-      AddIdTohOCR(&hocr_str, "block", page_id, bcnt);
-      AddBoxTohOCR(res_it, RIL_BLOCK, &hocr_str);
-    }
-    if (res_it->IsAtBeginningOf(RIL_PARA)) {
-      hocr_str += "\n    <p class='ocr_par'";
-      para_is_ltr = res_it->ParagraphIsLtr();
-      if (!para_is_ltr) {
-        hocr_str += " dir='rtl'";
-      }
-      AddIdTohOCR(&hocr_str, "par", page_id, pcnt);
-      paragraph_lang = res_it->WordRecognitionLanguage();
-      if (paragraph_lang) {
-        hocr_str += " lang='";
-        hocr_str += paragraph_lang;
-        hocr_str += "'";
-      }
-      AddBoxTohOCR(res_it, RIL_PARA, &hocr_str);
-    }
-    if (res_it->IsAtBeginningOf(RIL_TEXTLINE)) {
-      hocr_str += "\n     <span class='ocr_line'";
-      AddIdTohOCR(&hocr_str, "line", page_id, lcnt);
-      AddBoxTohOCR(res_it, RIL_TEXTLINE, &hocr_str);
-    }
-
-    // Now, process the word...
-    std::vector<std::vector<std::pair<const char*, float>>>* confidencemap = nullptr;
-    if (tesseract_->lstm_choice_mode) {
-      confidencemap = res_it->GetBestLSTMSymbolChoices();
-    }
-    hocr_str += "\n      <span class='ocrx_word'";
-    AddIdTohOCR(&hocr_str, "word", page_id, wcnt);
-    int left, top, right, bottom;
-    bool bold, italic, underlined, monospace, serif, smallcaps;
-    int pointsize, font_id;
-    const char *font_name;
-    res_it->BoundingBox(RIL_WORD, &left, &top, &right, &bottom);
-    font_name = res_it->WordFontAttributes(&bold, &italic, &underlined,
-                                           &monospace, &serif, &smallcaps,
-                                           &pointsize, &font_id);
-    hocr_str.add_str_int(" title='bbox ", left);
-    hocr_str.add_str_int(" ", top);
-    hocr_str.add_str_int(" ", right);
-    hocr_str.add_str_int(" ", bottom);
-    hocr_str.add_str_int("; x_wconf ", res_it->Confidence(RIL_WORD));
-    if (font_info) {
-      if (font_name) {
-        hocr_str += "; x_font ";
-        hocr_str += HOcrEscape(font_name);
-      }
-      hocr_str.add_str_int("; x_fsize ", pointsize);
-    }
-    hocr_str += "'";
-    const char* lang = res_it->WordRecognitionLanguage();
-    if (lang && (!paragraph_lang || strcmp(lang, paragraph_lang))) {
-      hocr_str += " lang='";
-      hocr_str += lang;
-      hocr_str += "'";
-    }
-    switch (res_it->WordDirection()) {
-      // Only emit direction if different from current paragraph direction
-      case DIR_LEFT_TO_RIGHT:
-        if (!para_is_ltr) hocr_str += " dir='ltr'";
-        break;
-      case DIR_RIGHT_TO_LEFT:
-        if (para_is_ltr) hocr_str += " dir='rtl'";
-        break;
-      case DIR_MIX:
-      case DIR_NEUTRAL:
-      default:  // Do nothing.
-        break;
-    }
-    hocr_str += ">";
-    bool last_word_in_line = res_it->IsAtFinalElement(RIL_TEXTLINE, RIL_WORD);
-    bool last_word_in_para = res_it->IsAtFinalElement(RIL_PARA, RIL_WORD);
-    bool last_word_in_block = res_it->IsAtFinalElement(RIL_BLOCK, RIL_WORD);
-    if (bold) hocr_str += "<strong>";
-    if (italic) hocr_str += "<em>";
-    do {
-      const std::unique_ptr<const char[]> grapheme(
-          res_it->GetUTF8Text(RIL_SYMBOL));
-      if (grapheme && grapheme[0] != 0) {
-        hocr_str += HOcrEscape(grapheme.get());
-      }
-      res_it->Next(RIL_SYMBOL);
-    } while (!res_it->Empty(RIL_BLOCK) && !res_it->IsAtBeginningOf(RIL_WORD));
-    if (italic) hocr_str += "</em>";
-    if (bold) hocr_str += "</strong>";
-    // If the lstm choice mode is required it is added here
-    if (tesseract_->lstm_choice_mode == 1 && confidencemap != nullptr) {
-      for (size_t i = 0; i < confidencemap->size(); i++) {
-        hocr_str += "\n       <span class='ocrx_cinfo'";
-        AddIdTohOCR(&hocr_str, "timestep", page_id, wcnt, tcnt);
-        hocr_str += ">";
-        std::vector<std::pair<const char*, float>> timestep = (*confidencemap)[i];
-        for (std::pair<const char*, float> conf : timestep) {
-          hocr_str += "<span class='ocr_glyph'";
-          AddIdTohOCR(&hocr_str, "choice", page_id, wcnt, gcnt);
-          hocr_str.add_str_int(" title='x_confs ", int(conf.second * 100));
-          hocr_str += "'";
-          hocr_str += ">";
-          hocr_str += conf.first;
-          hocr_str += "</span>";
-          gcnt++;
-        }
-        hocr_str += "</span>";
-        tcnt++;
-      }
-    } else if (tesseract_->lstm_choice_mode == 2 && confidencemap != nullptr) {
-      for (size_t i = 0; i < confidencemap->size(); i++) {
-        std::vector<std::pair<const char*, float>> timestep = (*confidencemap)[i];
-        if (timestep.size() > 0) {
-          hocr_str += "\n       <span class='ocrx_cinfo'";
-          AddIdTohOCR(&hocr_str, "lstm_choices", page_id, wcnt, tcnt);
-          hocr_str += " chosen='";
-          hocr_str += timestep[0].first;
-          hocr_str += "'>";
-          for (size_t j = 1; j < timestep.size(); j++) {
-            hocr_str += "<span class='ocr_glyph'";
-            AddIdTohOCR(&hocr_str, "choice", page_id, wcnt, gcnt);
-            hocr_str.add_str_int(" title='x_confs ", int(timestep[j].second * 100));
-            hocr_str += "'";
-            hocr_str += ">";
-            hocr_str += timestep[j].first;
-            hocr_str += "</span>";
-            gcnt++;
-          }
-          hocr_str += "</span>";
-          tcnt++;
-        }
-      }
-    }
-    hocr_str += "</span>";
-    tcnt = 1;
-    gcnt = 1;
-    wcnt++;
-    // Close any ending block/paragraph/textline.
-    if (last_word_in_line) {
-      hocr_str += "\n     </span>";
-      lcnt++;
-    }
-    if (last_word_in_para) {
-      hocr_str += "\n    </p>\n";
-      pcnt++;
-      para_is_ltr = true;  // back to default direction
-    }
-    if (last_word_in_block) {
-      hocr_str += "   </div>\n";
-      bcnt++;
-    }
-  }
-  hocr_str += "  </div>\n";
-
-  char *ret = new char[hocr_str.length() + 1];
-  strcpy(ret, hocr_str.string());
-  delete res_it;
-  return ret;
+  text->add_str_int("\t", left);
+  text->add_str_int("\t", top);
+  text->add_str_int("\t", right - left);
+  text->add_str_int("\t", bottom - top);
 }
 
 /**
@@ -1806,7 +1477,7 @@ char* TessBaseAPI::GetTSVText(int page_number) {
   }
 
   char* ret = new char[tsv_str.length() + 1];
-  strcpy(ret, tsv_str.string());
+  strcpy(ret, tsv_str.c_str());
   delete res_it;
   return ret;
 }
@@ -1938,7 +1609,7 @@ char* TessBaseAPI::GetUNLVText() {
       // NORMAL PROCESSING of non tilde crunched words.
       tilde_crunch_written = false;
       tesseract_->set_unlv_suspects(word);
-      const char* wordstr = word->best_choice->unichar_string().string();
+      const char* wordstr = word->best_choice->unichar_string().c_str();
       const STRING& lengths = word->best_choice->unichar_lengths();
       int length = lengths.length();
       int i = 0;
@@ -2051,19 +1722,23 @@ char* TessBaseAPI::GetOsdText(int page_number) {
   // clockwise rotation needed to make the page upright
   int rotate = OrientationIdToValue(orient_deg / 90);
 
-  const int kOsdBufsize = 255;
-  char* osd_buf = new char[kOsdBufsize];
-  snprintf(osd_buf, kOsdBufsize,
-           "Page number: %d\n"
-           "Orientation in degrees: %d\n"
-           "Rotate: %d\n"
-           "Orientation confidence: %.2f\n"
-           "Script: %s\n"
-           "Script confidence: %.2f\n",
-           page_number, orient_deg, rotate, orient_conf, script_name,
-           script_conf);
-
-  return osd_buf;
+  std::stringstream stream;
+  // Use "C" locale (needed for float values orient_conf and script_conf).
+  stream.imbue(std::locale::classic());
+  // Use fixed notation with 2 digits after the decimal point for float values.
+  stream.precision(2);
+  stream
+    << std::fixed
+    << "Page number: " << page_number << "\n"
+    << "Orientation in degrees: " << orient_deg << "\n"
+    << "Rotate: " << rotate << "\n"
+    << "Orientation confidence: " << orient_conf << "\n"
+    << "Script: " << script_name << "\n"
+    << "Script confidence: " << script_conf << "\n";
+  const std::string& text = stream.str();
+  char* result = new char[text.length() + 1];
+  strcpy(result, text.c_str());
+  return result;
 }
 
 #endif // ndef DISABLED_LEGACY_ENGINE
@@ -2337,7 +2012,7 @@ bool TessBaseAPI::Threshold(Pix** pix) {
     pixDestroy(pix);
   // Zero resolution messes up the algorithms, so make sure it is credible.
   int user_dpi = 0;
-  bool a = GetIntVariable("user_defined_dpi", &user_dpi);
+  GetIntVariable("user_defined_dpi", &user_dpi);
   int y_res = thresholder_->GetScaledYResolution();
   if (user_dpi && (user_dpi < kMinCredibleResolution ||
       user_dpi > kMaxCredibleResolution)) {
@@ -2354,7 +2029,7 @@ bool TessBaseAPI::Threshold(Pix** pix) {
             y_res, kMinCredibleResolution);
     thresholder_->SetSourceYResolution(kMinCredibleResolution);
   }
-  PageSegMode pageseg_mode =
+  auto pageseg_mode =
       static_cast<PageSegMode>(
           static_cast<int>(tesseract_->tessedit_pageseg_mode));
   if (!thresholder_->ThresholdToPix(pageseg_mode, pix)) return false;
@@ -2381,7 +2056,6 @@ bool TessBaseAPI::Threshold(Pix** pix) {
             thresholder_->GetScaledEstimatedResolution(), estimated_res);
   }
   tesseract_->set_source_resolution(estimated_res);
-  SavePixForCrash(estimated_res, *pix);
   return true;
 }
 
@@ -2412,7 +2086,7 @@ int TessBaseAPI::FindLines() {
 #ifndef DISABLED_LEGACY_ENGINE
   if (tesseract_->textord_equation_detect) {
     if (equ_detect_ == nullptr && datapath_ != nullptr) {
-      equ_detect_ = new EquationDetect(datapath_->string(), nullptr);
+      equ_detect_ = new EquationDetect(datapath_->c_str(), nullptr);
     }
     if (equ_detect_ == nullptr) {
       tprintf("Warning: Could not set equation detector\n");
@@ -2426,7 +2100,7 @@ int TessBaseAPI::FindLines() {
   OSResults osr;
   if (PSM_OSD_ENABLED(tesseract_->tessedit_pageseg_mode) &&
       osd_tess == nullptr) {
-    if (strcmp(language_->string(), "osd") == 0) {
+    if (strcmp(language_->c_str(), "osd") == 0) {
       osd_tess = tesseract_;
     } else {
       osd_tesseract_ = new Tesseract;
@@ -2436,7 +2110,7 @@ int TessBaseAPI::FindLines() {
                 " but data path is undefined\n");
         delete osd_tesseract_;
         osd_tesseract_ = nullptr;
-      } else if (osd_tesseract_->init_tesseract(datapath_->string(), nullptr,
+      } else if (osd_tesseract_->init_tesseract(datapath_->c_str(), nullptr,
                                                 "osd", OEM_TESSERACT_ONLY,
                                                 nullptr, 0, nullptr, nullptr,
                                                 false, &mgr) == 0) {
@@ -2478,7 +2152,6 @@ void TessBaseAPI::ClearResults() {
     delete paragraph_models_;
     paragraph_models_ = nullptr;
   }
-  SavePixForCrash(0, nullptr);
 }
 
 /**
@@ -2690,7 +2363,7 @@ ROW *TessBaseAPI::MakeTessOCRRow(float baseline,
 TBLOB *TessBaseAPI::MakeTBLOB(Pix *pix) {
   int width = pixGetWidth(pix);
   int height = pixGetHeight(pix);
-  BLOCK block("a character", TRUE, 0, 0, 0, 0, width, height);
+  BLOCK block("a character", true, 0, 0, 0, 0, width, height);
 
   // Create C_BLOBs from the page
   extract_edges(pix, &block);
@@ -2784,7 +2457,7 @@ void TessBaseAPI::AdaptToCharacter(const char *unichar_repr,
 
 
 PAGE_RES* TessBaseAPI::RecognitionPass1(BLOCK_LIST* block_list) {
-  PAGE_RES *page_res = new PAGE_RES(false, block_list,
+  auto *page_res = new PAGE_RES(false, block_list,
                                     &(tesseract_->prev_word_best_choice_));
   tesseract_->recog_all_words(page_res, nullptr, nullptr, nullptr, 1);
   return page_res;
@@ -2826,7 +2499,7 @@ ELISTIZEH(TESS_CHAR)
 ELISTIZE(TESS_CHAR)
 
 static void add_space(TESS_CHAR_IT* it) {
-  TESS_CHAR *t = new TESS_CHAR(0, " ");
+  auto *t = new TESS_CHAR(0, " ");
   it->add_after_then_move(t);
 }
 
@@ -2850,15 +2523,15 @@ static void extract_result(TESS_CHAR_IT* out,
   int word_count = 0;
   while (page_res_it.word() != nullptr) {
     WERD_RES *word = page_res_it.word();
-    const char *str = word->best_choice->unichar_string().string();
-    const char *len = word->best_choice->unichar_lengths().string();
+    const char *str = word->best_choice->unichar_string().c_str();
+    const char *len = word->best_choice->unichar_lengths().c_str();
     TBOX real_rect = word->word->bounding_box();
 
     if (word_count)
       add_space(out);
     int n = strlen(len);
     for (int i = 0; i < n; i++) {
-      TESS_CHAR *tc = new TESS_CHAR(rating_to_cost(word->best_choice->rating()),
+      auto *tc = new TESS_CHAR(rating_to_cost(word->best_choice->rating()),
                                     str, *len);
       tc->box = real_rect.intersection(word->box_word->BlobBox(i));
       out->add_after_then_move(tc);
@@ -2984,7 +2657,7 @@ void TessBaseAPI::RunAdaptiveClassifier(TBLOB* blob,
                                         int* unichar_ids,
                                         float* ratings,
                                         int* num_matches_returned) {
-  BLOB_CHOICE_LIST* choices = new BLOB_CHOICE_LIST;
+  auto* choices = new BLOB_CHOICE_LIST;
   tesseract_->AdaptiveClassifier(blob, choices);
   BLOB_CHOICE_IT choices_it(choices);
   int& index = *num_matches_returned;

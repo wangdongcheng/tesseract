@@ -2,7 +2,6 @@
  * File:        statistc.h  (Formerly stats.h)
  * Description: Class description for STATS class.
  * Author:      Ray Smith
- * Created:     Mon Feb 04 16:19:07 GMT 1991
  *
  * (C) Copyright 1991, Hewlett-Packard Ltd.
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +20,6 @@
 #define TESSERACT_CCSTRUCT_STATISTC_H_
 
 #include <cstdio>
-#include "host.h"
 #include "kdpair.h"
 #include "scrollview.h"
 
@@ -43,7 +41,7 @@ class STATS {
   // TODO(rays) This is ugly. Convert the second argument to
   // max_bucket_value and all the code that uses it.
   STATS(int32_t min_bucket_value, int32_t max_bucket_value_plus_1);
-  STATS();  // empty for arrays
+  STATS() = default; // empty for arrays
 
   ~STATS();
 
@@ -141,11 +139,11 @@ class STATS {
   #endif  // GRAPHICS_DISABLED
 
  private:
-  int32_t rangemin_;                // min of range
+  int32_t rangemin_ = 0;            // min of range
   // rangemax_ is not well named as it is really one past the max.
-  int32_t rangemax_;                // max of range
-  int32_t total_count_;             // no of samples
-  int32_t* buckets_;                // array of cells
+  int32_t rangemax_ = 0;            // max of range
+  int32_t total_count_ = 0;         // no of samples
+  int32_t* buckets_ = nullptr;      // array of cells
 };
 
 // Returns the nth ordered item from the array, as if they were

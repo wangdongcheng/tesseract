@@ -1,8 +1,7 @@
 /******************************************************************
  * File:        output.cpp  (Formerly output.c)
  * Description: Output pass
- * Author:          Phil Cheatle
- * Created:         Thu Aug  4 10:56:08 BST 1994
+ * Author:      Phil Cheatle
  *
  * (C) Copyright 1994, Hewlett-Packard Ltd.
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,23 +19,17 @@
 #include <cctype>
 #include <cerrno>
 #include <cstring>
-#include "helpers.h"
-#include "tessvars.h"
 #include "control.h"
-#include "reject.h"
-#include "docqual.h"
+#include "helpers.h"
 #include "output.h"
-#include "globals.h"
 #include "tesseractclass.h"
+#include "tessvars.h"
+#ifndef DISABLED_LEGACY_ENGINE
+#include "docqual.h"
+#include "reject.h"
+#endif
 
-#define EPAPER_EXT      ".ep"
-#define PAGE_YSIZE      3508
-#define CTRL_INSET      '\024'   //dc4=text inset
-#define CTRL_FONT       '\016'   //so=font change
-#define CTRL_DEFAULT      '\017' //si=default font
-#define CTRL_SHIFT      '\022'   //dc2=x shift
-#define CTRL_TAB        '\011'   //tab
-#define CTRL_NEWLINE      '\012' //newline
+#define CTRL_NEWLINE    '\012'   //newline
 #define CTRL_HARDLINE   '\015'   //cr
 
 namespace tesseract {
@@ -131,7 +124,7 @@ void Tesseract::write_results(PAGE_RES_IT& page_res_it,
     if ((need_reject && !stats_.last_char_was_tilde) ||
         (force_eol && stats_.write_results_empty_block)) {
       /* Write a reject char - mark as rejected unless zero_rejection mode */
-      stats_.last_char_was_tilde = TRUE;
+      stats_.last_char_was_tilde = true;
       stats_.tilde_crunch_written = true;
       stats_.last_char_was_newline = false;
       stats_.write_results_empty_block = false;
@@ -187,7 +180,7 @@ void Tesseract::write_results(PAGE_RES_IT& page_res_it,
   check_debug_pt (word, 120);
   if (tessedit_rejection_debug) {
     tprintf ("Dict word: \"%s\": %d\n",
-             word->best_choice->debug_string().string(),
+             word->best_choice->debug_string().c_str(),
              dict_word(*(word->best_choice)));
   }
   if (!word->word->flag(W_REP_CHAR) || !tessedit_write_rep_codes) {
@@ -214,7 +207,7 @@ void Tesseract::write_results(PAGE_RES_IT& page_res_it,
  * determine_newline_type
  *
  * Find whether we have a wrapping or hard newline.
- * Return FALSE if not at end of line.
+ * Return false if not at end of line.
  **********************************************************************/
 
 char determine_newline_type(                   //test line ends
@@ -230,7 +223,7 @@ char determine_newline_type(                   //test line ends
   TBOX block_box;                 //block bounding
 
   if (!word->flag (W_EOL))
-    return FALSE;                //not end of line
+    return false;                //not end of line
   if (next_word == nullptr || next_block == nullptr || block != next_block)
     return CTRL_NEWLINE;
   if (next_word->space () > 0)
@@ -240,7 +233,7 @@ char determine_newline_type(                   //test line ends
   block_box = block->pdblk.bounding_box ();
                                  //gap to eol
   end_gap = block_box.right () - word_box.right ();
-  end_gap -= (int32_t) block->space ();
+  end_gap -= static_cast<int32_t>(block->space ());
   width = next_box.right () - next_box.left ();
   //      tprintf("end_gap=%d-%d=%d, width=%d-%d=%d, nl=%d\n",
   //              block_box.right(),word_box.right(),end_gap,
@@ -263,7 +256,7 @@ UNICHAR_ID Tesseract::get_rep_char(WERD_RES *word) {  // what char is repeated?
   if (i < word->reject_map.length()) {
     return word->best_choice->unichar_id(i);
   } else {
-    return word->uch_set->unichar_to_id(unrecognised_char.string());
+    return word->uch_set->unichar_to_id(unrecognised_char.c_str());
   }
 }
 
@@ -351,11 +344,11 @@ void Tesseract::set_unlv_suspects(WERD_RES *word_res) {
   }
 
   if (acceptable_word_string(*word_res->uch_set,
-                             word.unichar_string().string(),
-                             word.unichar_lengths().string()) !=
+                             word.unichar_string().c_str(),
+                             word.unichar_lengths().c_str()) !=
                                  AC_UNACCEPTABLE ||
-      acceptable_number_string(word.unichar_string().string(),
-                               word.unichar_lengths().string())) {
+      acceptable_number_string(word.unichar_string().c_str(),
+                               word.unichar_lengths().c_str())) {
     if (word_res->reject_map.length() > suspect_short_words) {
       for (i = 0; i < len; i++) {
         if (word_res->reject_map[i].rejected() &&

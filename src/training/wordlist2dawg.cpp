@@ -2,7 +2,6 @@
 // File:        wordlist2dawg.cpp
 // Description: Program to generate a DAWG from a word list file
 // Author:      Thomas Kielbus
-// Created:     Thu May 10 18:11:42 PDT 2007
 //
 // (C) Copyright 2006, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,7 +23,6 @@
 #include "commontraining.h"     // CheckSharedLibraryVersion
 #include "dawg.h"
 #include "dict.h"
-#include "emalloc.h"
 #include "helpers.h"
 #include "serialis.h"
 #include "trie.h"
@@ -56,7 +54,6 @@ int main(int argc, char** argv) {
     tprintf("Set reverse_policy to %s\n",
             tesseract::Trie::get_reverse_policy_name(reverse_policy));
   }
-  if (argc == 7) argv_index += 3;
   const char* wordlist_filename = argv[++argv_index];
   const char* dawg_filename = argv[++argv_index];
   const char* unicharset_file = argv[++argv_index];

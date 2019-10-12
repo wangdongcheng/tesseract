@@ -2,7 +2,6 @@
 // File:        series.cpp
 // Description: Runs networks in series on the same input.
 // Author:      Ray Smith
-// Created:     Thu May 02 08:26:06 PST 2013
 //
 // (C) Copyright 2013, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -50,7 +49,7 @@ int Series::InitWeights(float range, TRand* randomizer) {
   for (int i = 0; i < stack_.size(); ++i) {
     int weights = stack_[i]->InitWeights(range, randomizer);
     tprintf("  %s:%d, %d\n",
-            stack_[i]->spec().string(), stack_[i]->NumOutputs(), weights);
+            stack_[i]->spec().c_str(), stack_[i]->NumOutputs(), weights);
     num_weights_ += weights;
   }
   tprintf("Total weights = %d\n", num_weights_);
@@ -64,7 +63,7 @@ int Series::RemapOutputs(int old_no, const std::vector<int>& code_map) {
   tprintf("Num (Extended) outputs,weights in Series:\n");
   for (int i = 0; i < stack_.size(); ++i) {
     int weights = stack_[i]->RemapOutputs(old_no, code_map);
-    tprintf("  %s:%d, %d\n", stack_[i]->spec().string(),
+    tprintf("  %s:%d, %d\n", stack_[i]->spec().c_str(),
             stack_[i]->NumOutputs(), weights);
     num_weights_ += weights;
   }
@@ -170,7 +169,7 @@ void Series::SplitAt(int last_start, Series** start, Series** end) {
   for (int s = 0; s <= last_start; ++s) {
     if (s + 1 == stack_.size() && stack_[s]->type() == NT_SOFTMAX) {
       // Change the softmax to a tanh.
-      FullyConnected* fc = static_cast<FullyConnected*>(stack_[s]);
+      auto* fc = static_cast<FullyConnected*>(stack_[s]);
       fc->ChangeType(NT_TANH);
     }
     master_series->AddToStack(stack_[s]);
@@ -189,7 +188,7 @@ void Series::SplitAt(int last_start, Series** start, Series** end) {
 // deleting it.
 void Series::AppendSeries(Network* src) {
   ASSERT_HOST(src->type() == NT_SERIES);
-  Series* src_series = static_cast<Series*>(src);
+  auto* src_series = static_cast<Series*>(src);
   for (int s = 0; s < src_series->stack_.size(); ++s) {
     AddToStack(src_series->stack_[s]);
     src_series->stack_[s] = nullptr;

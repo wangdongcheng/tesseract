@@ -2,16 +2,16 @@
 # tesseract
 #
 
-if (NOT CPPAN_BUILD AND NOT (WIN32 OR CYGWIN))
-    return()
+if (UNIX AND NOT ANDROID)
+    set(LIB_pthread pthread)
 endif()
 
-if (CPPAN_BUILD)
+if (CPPAN_BUILD OR SW_BUILD)
     set(ICU_FOUND 1)
 endif()
 
 # experimental
-if (MSVC AND NOT CPPAN_BUILD AND NOT USE_SYSTEM_ICU)
+if (MSVC AND NOT CPPAN_BUILD AND NOT SW_BUILD AND NOT USE_SYSTEM_ICU)
     include(CheckTypeSize)
     check_type_size("void *" SIZEOF_VOID_P)
 
@@ -55,7 +55,7 @@ if (MSVC AND NOT CPPAN_BUILD AND NOT USE_SYSTEM_ICU)
 endif()
 # experimental
 
-if (NOT CPPAN_BUILD)
+if (NOT CPPAN_BUILD AND NOT SW_BUILD)
     find_package(ICU COMPONENTS uc i18n)
 endif()
 
@@ -76,6 +76,22 @@ set(common_training_src
     commandlineflags.h
     commontraining.cpp
     commontraining.h
+    ctc.cpp
+    ctc.h
+    errorcounter.cpp
+    errorcounter.h
+    intfeaturedist.cpp
+    intfeaturedist.h
+    intfeaturemap.cpp
+    intfeaturemap.h
+    mastertrainer.cpp
+    mastertrainer.h
+    networkbuilder.cpp
+    networkbuilder.h
+    sampleiterator.cpp
+    sampleiterator.h
+    trainingsampleset.cpp
+    trainingsampleset.h
 )
 add_library                 (common_training ${common_training_src})
 target_link_libraries       (common_training libtesseract tessopt)
@@ -164,7 +180,7 @@ install                     (TARGETS wordlist2dawg RUNTIME DESTINATION bin LIBRA
 
 if (ICU_FOUND)
 
-if (NOT CPPAN_BUILD)
+if (NOT CPPAN_BUILD AND NOT SW_BUILD)
 include_directories(${ICU_INCLUDE_DIRS})
 endif()
 
@@ -175,10 +191,14 @@ endif()
 set(unicharset_training_src
     icuerrorcode.cpp
     icuerrorcode.h
+    fileio.cpp
+    fileio.h
     lang_model_helpers.cpp
     lang_model_helpers.h
     lstmtester.cpp
     lstmtester.h
+    lstmtrainer.cpp
+    lstmtrainer.h
     normstrngs.cpp
     normstrngs.h
     unicharset_training_utils.cpp
@@ -191,10 +211,12 @@ set(unicharset_training_src
 
 )
 add_library                 (unicharset_training ${unicharset_training_src})
-if (NOT CPPAN_BUILD)
-target_link_libraries       (unicharset_training common_training ${ICU_LIBRARIES})
-else()
+if (CPPAN_BUILD)
 target_link_libraries       (unicharset_training common_training pvt.cppan.demo.unicode.icu.i18n)
+elseif (SW_BUILD)
+target_link_libraries       (unicharset_training common_training org.sw.demo.unicode.icu.i18n)
+else()
+target_link_libraries       (unicharset_training common_training ${ICU_LIBRARIES})
 endif()
 project_group               (unicharset_training "Training Tools")
 
@@ -214,7 +236,7 @@ install                     (TARGETS combine_lang_model RUNTIME DESTINATION bin 
 ########################################
 
 add_executable              (lstmeval lstmeval.cpp)
-target_link_libraries       (lstmeval unicharset_training)
+target_link_libraries       (lstmeval unicharset_training ${LIB_pthread})
 project_group               (lstmeval "Training Tools")
 install                     (TARGETS lstmeval RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
 
@@ -224,7 +246,7 @@ install                     (TARGETS lstmeval RUNTIME DESTINATION bin LIBRARY DE
 ########################################
 
 add_executable              (lstmtraining lstmtraining.cpp)
-target_link_libraries       (lstmtraining unicharset_training)
+target_link_libraries       (lstmtraining unicharset_training ${LIB_pthread})
 project_group               (lstmtraining "Training Tools")
 install                     (TARGETS lstmtraining RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
 
@@ -253,11 +275,11 @@ install                     (TARGETS unicharset_extractor RUNTIME DESTINATION bi
 # EXECUTABLE text2image
 ########################################
 
-if (NOT CPPAN_BUILD)
+if (NOT CPPAN_BUILD AND NOT SW_BUILD)
 find_package(PkgConfig)
 endif()
 
-if (PKG_CONFIG_FOUND OR CPPAN_BUILD)
+if (PKG_CONFIG_FOUND OR CPPAN_BUILD OR SW_BUILD)
 
 if (PKG_CONFIG_FOUND)
 pkg_check_modules(Pango REQUIRED pango)
@@ -273,6 +295,8 @@ set(text2image_src
     boxchar.h
     degradeimage.cpp
     degradeimage.h
+    fileio.h
+    fileio.cpp
     ligature_table.cpp
     ligature_table.h
     normstrngs.cpp
@@ -302,6 +326,8 @@ target_link_libraries       (text2image
 endif()
 if (CPPAN_BUILD)
 target_link_libraries       (text2image pvt.cppan.demo.gnome.pango.pangocairo)
+elseif (SW_BUILD)
+target_link_libraries       (text2image org.sw.demo.gnome.pango.pangocairo)
 endif()
 project_group               (text2image "Training Tools")
 install                     (TARGETS text2image RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)

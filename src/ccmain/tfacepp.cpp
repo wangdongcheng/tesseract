@@ -1,8 +1,7 @@
 /**********************************************************************
  * File:        tfacepp.cpp  (Formerly tface++.c)
  * Description: C++ side of the C/C++ Tess/Editor interface.
- * Author:                  Ray Smith
- * Created:                 Thu Apr 23 15:39:23 BST 1992
+ * Author:      Ray Smith
  *
  * (C) Copyright 1992, Hewlett-Packard Ltd.
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -50,7 +49,7 @@ void Tesseract::recog_word(WERD_RES *word) {
   if (word->best_choice->length() != word->box_word->length()) {
     tprintf("recog_word ASSERT FAIL String:\"%s\"; "
             "Strlen=%d; #Blobs=%d\n",
-            word->best_choice->debug_string().string(),
+            word->best_choice->debug_string().c_str(),
             word->best_choice->length(), word->box_word->length());
   }
   ASSERT_HOST(word->best_choice->length() == word->box_word->length());
@@ -70,8 +69,8 @@ void Tesseract::recog_word(WERD_RES *word) {
       if (((real_dict_perm_type == SYSTEM_DAWG_PERM) ||
            (real_dict_perm_type == FREQ_DAWG_PERM) ||
            (real_dict_perm_type == USER_DAWG_PERM)) &&
-          (alpha_count(word->best_choice->unichar_string().string(),
-                       word->best_choice->unichar_lengths().string()) > 0)) {
+          (alpha_count(word->best_choice->unichar_string().c_str(),
+                       word->best_choice->unichar_lengths().c_str()) > 0)) {
         word->best_choice->set_permuter(real_dict_perm_type);  // use dict perm
       }
     }
@@ -84,7 +83,7 @@ void Tesseract::recog_word(WERD_RES *word) {
   // Factored out from control.cpp
   ASSERT_HOST((word->best_choice == nullptr) == (word->raw_choice == nullptr));
   if (word->best_choice == nullptr || word->best_choice->length() == 0 ||
-      static_cast<int>(strspn(word->best_choice->unichar_string().string(),
+      static_cast<int>(strspn(word->best_choice->unichar_string().c_str(),
                               " ")) == word->best_choice->length()) {
     word->tess_failed = true;
     word->reject_map.initialise(word->box_word->length());
@@ -114,7 +113,7 @@ void Tesseract::recog_word_recursive(WERD_RES *word) {
     word->best_choice->make_bad();  // should never happen
     tprintf("recog_word: Discarded long string \"%s\""
             " (%d characters vs %d blobs)\n",
-            word->best_choice->unichar_string().string(),
+            word->best_choice->unichar_string().c_str(),
             word->best_choice->length(), word_length);
     tprintf("Word is at:");
     word->word->bounding_box().print();
@@ -183,12 +182,12 @@ void Tesseract::split_word(WERD_RES *word,
   BlamerBundle *orig_bb =
       word->blamer_bundle ? new BlamerBundle(*word->blamer_bundle) : nullptr;
 
-  WERD_RES *word2 = new WERD_RES(*word);
+  auto *word2 = new WERD_RES(*word);
 
   // blow away the copied chopped_word, as we want to work with
   // the blobs from the input chopped_word so seam_arrays can be merged.
   TWERD *chopped = word->chopped_word;
-  TWERD *chopped2 = new TWERD;
+  auto *chopped2 = new TWERD;
   chopped2->blobs.reserve(chopped->NumBlobs() - split_pt);
   for (int i = split_pt; i < chopped->NumBlobs(); ++i) {
     chopped2->blobs.push_back(chopped->blobs[i]);
@@ -290,7 +289,7 @@ void Tesseract::join_words(WERD_RES *word,
       if (total_joined_choices >= kTooManyAltChoices &&
           bc1_index > kAltsPerPiece)
         break;
-      WERD_CHOICE *wc = new WERD_CHOICE(*bc1_it.data());
+      auto *wc = new WERD_CHOICE(*bc1_it.data());
       *wc += *bc2_it.data();
       jc_it.add_after_then_move(wc);
       ++total_joined_choices;

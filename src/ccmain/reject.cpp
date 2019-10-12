@@ -1,8 +1,7 @@
 /**********************************************************************
  * File:        reject.cpp  (Formerly reject.c)
  * Description: Rejection functions used in tessedit
- * Author:    Phil Cheatle
- * Created:   Wed Sep 23 16:50:21 BST 1992
+ * Author:      Phil Cheatle
  *
  * (C) Copyright 1992, Hewlett-Packard Ltd.
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,12 +44,9 @@ int16_t Tesseract::safe_dict_word(const WERD_RES *werd_res) {
 #include "reject.h"
 #include "control.h"
 #include "docqual.h"
-#include "globaloc.h"  // For err_exit.
-#include "globals.h"
 #include "helpers.h"
 
 #include "tesseractclass.h"
-
 
 CLISTIZEH (STRING) CLISTIZE (STRING)
 
@@ -63,7 +59,7 @@ CLISTIZEH (STRING) CLISTIZE (STRING)
 namespace tesseract {
 void Tesseract::set_done(WERD_RES *word, int16_t pass) {
   word->done = word->tess_accepted &&
-      (strchr(word->best_choice->unichar_string().string(), ' ') == nullptr);
+      (strchr(word->best_choice->unichar_string().c_str(), ' ') == nullptr);
   bool word_is_ambig = word->best_choice->dangerous_ambig_found();
   bool word_from_dict = word->best_choice->permuter() == SYSTEM_DAWG_PERM ||
       word->best_choice->permuter() == FREQ_DAWG_PERM ||
@@ -71,12 +67,12 @@ void Tesseract::set_done(WERD_RES *word, int16_t pass) {
   if (word->done && (pass == 1) && (!word_from_dict || word_is_ambig) &&
       one_ell_conflict(word, false)) {
     if (tessedit_rejection_debug) tprintf("one_ell_conflict detected\n");
-    word->done = FALSE;
+    word->done = false;
   }
   if (word->done && ((!word_from_dict &&
       word->best_choice->permuter() != NUMBER_PERM) || word_is_ambig)) {
     if (tessedit_rejection_debug) tprintf("non-dict or ambig word detected\n");
-      word->done = FALSE;
+      word->done = false;
   }
   if (tessedit_rejection_debug) {
     tprintf("set_done(): done=%d\n", word->done);
@@ -127,7 +123,7 @@ void Tesseract::make_reject_map(WERD_RES *word, ROW *row, int16_t pass) {
         word->reject_map.rej_word_not_tess_accepted ();
 
       if (rej_use_tess_blanks &&
-        (strchr (word->best_choice->unichar_string().string (), ' ') != nullptr))
+        (strchr (word->best_choice->unichar_string().c_str(), ' ') != nullptr))
         word->reject_map.rej_word_contains_blanks ();
 
       WERD_CHOICE* best_choice = word->best_choice;
@@ -137,8 +133,8 @@ void Tesseract::make_reject_map(WERD_RES *word, ROW *row, int16_t pass) {
              best_choice->permuter() == USER_DAWG_PERM) &&
             (!rej_use_sensible_wd ||
              acceptable_word_string(*word->uch_set,
-                                    best_choice->unichar_string().string(),
-                                    best_choice->unichar_lengths().string()) !=
+                                    best_choice->unichar_string().c_str(),
+                                    best_choice->unichar_lengths().c_str()) !=
                                         AC_UNACCEPTABLE)) {
           // PASSED TEST
         } else if (best_choice->permuter() == NUMBER_PERM) {
@@ -148,7 +144,7 @@ void Tesseract::make_reject_map(WERD_RES *word, ROW *row, int16_t pass) {
                  offset += best_choice->unichar_lengths()[i++]) {
               if (word->reject_map[i].accepted() &&
                   word->uch_set->get_isalpha(
-                      best_choice->unichar_string().string() + offset,
+                      best_choice->unichar_string().c_str() + offset,
                       best_choice->unichar_lengths()[i]))
                 word->reject_map[i].setrej_bad_permuter();
               // rej alpha
@@ -162,7 +158,7 @@ void Tesseract::make_reject_map(WERD_RES *word, ROW *row, int16_t pass) {
     }
   } else {
     tprintf("BAD tessedit_reject_mode\n");
-    err_exit();
+    ASSERT_HOST("Fatal error encountered!" == nullptr);
   }
 
   if (tessedit_image_border > -1)
@@ -310,14 +306,14 @@ bool Tesseract::one_ell_conflict(WERD_RES* word_res, bool update_map) {
   bool dict_word_ok;
   int dict_word_type;
 
-  word = word_res->best_choice->unichar_string().string ();
-  lengths = word_res->best_choice->unichar_lengths().string();
+  word = word_res->best_choice->unichar_string().c_str();
+  lengths = word_res->best_choice->unichar_lengths().c_str();
   word_len = strlen(lengths);
   /*
     If there are no occurrences of the conflict set characters then the word
     is OK.
   */
-  if (strpbrk(word, conflict_set_I_l_1.string ()) == nullptr)
+  if (strpbrk(word, conflict_set_I_l_1.c_str()) == nullptr)
     return false;
 
   /*
@@ -532,8 +528,8 @@ void Tesseract::dont_allow_1Il(WERD_RES *word) {
   int i = 0;
   int offset;
   int word_len = word->reject_map.length();
-  const char *s = word->best_choice->unichar_string().string();
-  const char *lengths = word->best_choice->unichar_lengths().string();
+  const char *s = word->best_choice->unichar_string().c_str();
+  const char *lengths = word->best_choice->unichar_lengths().c_str();
   bool accepted_1Il = false;
 
   for (i = 0, offset = 0; i < word_len;
@@ -578,7 +574,7 @@ int16_t Tesseract::count_alphanums(WERD_RES *word_res) {
 void Tesseract::reject_mostly_rejects(WERD_RES *word) {
   /* Reject the whole of the word if the fraction of rejects exceeds a limit */
 
-  if ((float) word->reject_map.reject_count() / word->reject_map.length() >=
+  if (static_cast<float>(word->reject_map.reject_count()) / word->reject_map.length() >=
     rej_whole_of_mostly_reject_word_fract)
     word->reject_map.rej_word_mostly_rej();
 }
@@ -600,7 +596,7 @@ bool Tesseract::repeated_nonalphanum_wd(WERD_RES* word, ROW* row) {
     if (word->best_choice->unichar_id(i) != uch_id) return false;
   }
 
-  word_char_quality(word, row, &char_quality, &accepted_char_quality);
+  word_char_quality(word, &char_quality, &accepted_char_quality);
 
   if ((word->best_choice->unichar_lengths().length () == char_quality) &&
     (char_quality == accepted_char_quality))
@@ -641,7 +637,7 @@ void Tesseract::flip_hyphens(WERD_RES *word_res) {
     // Don't touch small or touching blobs - it is too dangerous.
     if ((out_box.width() > 8 * word_res->denorm.x_scale()) &&
         (out_box.left() > prev_right) && (out_box.right() < next_left)) {
-      aspect_ratio = out_box.width() / (float) out_box.height();
+      aspect_ratio = out_box.width() / static_cast<float>(out_box.height());
       if (word_res->uch_set->eq(best_choice->unichar_id(i), ".")) {
         if (aspect_ratio >= tessedit_upper_flip_hyphen &&
             word_res->uch_set->contains_unichar_id(unichar_dash) &&

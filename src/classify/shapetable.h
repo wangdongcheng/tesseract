@@ -5,7 +5,6 @@
 // Description: Class to map a classifier shape index to unicharset
 //              indices and font indices.
 // Author:      Ray Smith
-// Created:     Thu Oct 28 17:46:32 PDT 2010
 //
 // (C) Copyright 2010, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,8 +53,8 @@ struct UnicharRating {
 
   // Sort function to sort ratings appropriately by descending rating.
   static int SortDescendingRating(const void* t1, const void* t2) {
-    const UnicharRating* a = static_cast<const UnicharRating*>(t1);
-    const UnicharRating* b = static_cast<const UnicharRating*>(t2);
+    const auto* a = static_cast<const UnicharRating*>(t1);
+    const auto* b = static_cast<const UnicharRating*>(t2);
     if (a->rating > b->rating) {
       return -1;
     } else if (a->rating < b->rating) {
@@ -100,8 +99,8 @@ struct ShapeRating {
 
   // Sort function to sort ratings appropriately by descending rating.
   static int SortDescendingRating(const void* t1, const void* t2) {
-    const ShapeRating* a = static_cast<const ShapeRating*>(t1);
-    const ShapeRating* b = static_cast<const ShapeRating*>(t2);
+    const auto* a = static_cast<const ShapeRating*>(t1);
+    const auto* b = static_cast<const ShapeRating*>(t2);
     if (a->rating > b->rating) {
       return -1;
     } else if (a->rating < b->rating) {
@@ -243,10 +242,10 @@ class Shape {
 
   // Flag indicates that the unichars are sorted, allowing faster set
   // operations with another shape.
-  bool unichars_sorted_;
+  bool unichars_sorted_ = false;
   // If this Shape is part of a ShapeTable the destiation_index_ is the index
   // of some other shape in the ShapeTable with which this shape is merged.
-  int destination_index_;
+  int destination_index_ = 0;
   // Array of unichars, each with a set of fonts. Each unichar has at most
   // one entry in the vector.
   GenericVector<UnicharAndFonts> unichars_;

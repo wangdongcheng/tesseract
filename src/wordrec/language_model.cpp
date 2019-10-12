@@ -3,7 +3,6 @@
 // Description: Functions that utilize the knowledge about the properties,
 //              structure and statistics of the language to help recognition.
 // Author:      Daria Antonova
-// Created:     Mon Nov 11 11:26:43 PST 2009
 //
 // (C) Copyright 2009, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -128,10 +127,7 @@ LanguageModel::LanguageModel(const UnicityTable<FontInfo> *fontinfo_table,
                        dict->getCCUtil()->params()),
       dawg_args_(nullptr, new DawgPositionVector(), NO_PERM),
       fontinfo_table_(fontinfo_table),
-      dict_(dict),
-      fixed_pitch_(false),
-      max_char_wh_ratio_(0.0),
-      acceptable_choice_found_(false) {
+      dict_(dict) {
   ASSERT_HOST(dict_ != nullptr);
 }
 
@@ -161,7 +157,7 @@ void LanguageModel::InitForWord(const WERD_CHOICE *prev_word,
     } else {
       prev_word_str_ = " ";
     }
-    const char *str_ptr = prev_word_str_.string();
+    const char *str_ptr = prev_word_str_.c_str();
     const char *str_end = str_ptr + prev_word_str_.length();
     int step;
     prev_word_unichar_step_len_ = 0;
@@ -662,7 +658,7 @@ bool LanguageModel::AddViterbiStateEntry(
   }
 
   // Create the new ViterbiStateEntry compute the adjusted cost of the path.
-  ViterbiStateEntry *new_vse = new ViterbiStateEntry(
+  auto *new_vse = new ViterbiStateEntry(
       parent_vse, b, 0.0, outline_length,
       consistency_info, associate_stats, top_choice_flags, dawg_info,
       ngram_info, (language_model_debug_level > 0) ?
@@ -803,7 +799,8 @@ LanguageModelDawgInfo *LanguageModel::GenerateDawgInfo(
   }
 
   // Deal with hyphenated words.
-  if (word_end && dict_->has_hyphen_end(b.unichar_id(), curr_col == 0)) {
+  if (word_end && dict_->has_hyphen_end(&dict_->getUnicharset(),
+                                        b.unichar_id(), curr_col == 0)) {
     if (language_model_debug_level > 0) tprintf("Hyphenated word found\n");
     return new LanguageModelDawgInfo(dawg_args_.active_dawgs, COMPOUND_PERM);
   }
@@ -885,10 +882,10 @@ LanguageModelNgramInfo *LanguageModel::GenerateNgramInfo(
   const char *pcontext_ptr = "";
   int pcontext_unichar_step_len = 0;
   if (parent_vse == nullptr) {
-    pcontext_ptr = prev_word_str_.string();
+    pcontext_ptr = prev_word_str_.c_str();
     pcontext_unichar_step_len = prev_word_unichar_step_len_;
   } else {
-    pcontext_ptr = parent_vse->ngram_info->context.string();
+    pcontext_ptr = parent_vse->ngram_info->context.c_str();
     pcontext_unichar_step_len =
       parent_vse->ngram_info->context_unichar_step_len;
   }
@@ -925,7 +922,7 @@ LanguageModelNgramInfo *LanguageModel::GenerateNgramInfo(
   if (parent_vse != nullptr && parent_vse->ngram_info->pruned) pruned = true;
 
   // Construct and return the new LanguageModelNgramInfo.
-  LanguageModelNgramInfo *ngram_info = new LanguageModelNgramInfo(
+  auto *ngram_info = new LanguageModelNgramInfo(
       pcontext_ptr, pcontext_unichar_step_len, pruned, ngram_cost,
       ngram_and_classifier_cost);
   ngram_info->context += unichar;
@@ -1174,19 +1171,22 @@ void LanguageModel::FillConsistencyInfo(
         }
       }
       if (expected_gap_found) {
-        float actual_gap =
-            static_cast<float>(word_res->GetBlobsGap(curr_col-1));
-        float gap_ratio = expected_gap / actual_gap;
-        // TODO(rays) The gaps seem to be way off most of the time, saved by
-        // the error here that the ratio was compared to 1/2, when it should
-        // have been 0.5f. Find the source of the gaps discrepancy and put
-        // the 0.5f here in place of 0.0f.
-        // Test on 2476595.sj, pages 0 to 6. (In French.)
-        if (gap_ratio < 0.0f || gap_ratio > 2.0f) {
+        int actual_gap = word_res->GetBlobsGap(curr_col-1);
+        if (actual_gap == 0) {
           consistency_info->num_inconsistent_spaces++;
+        } else {
+          float gap_ratio = expected_gap / actual_gap;
+          // TODO(rays) The gaps seem to be way off most of the time, saved by
+          // the error here that the ratio was compared to 1/2, when it should
+          // have been 0.5f. Find the source of the gaps discrepancy and put
+          // the 0.5f here in place of 0.0f.
+          // Test on 2476595.sj, pages 0 to 6. (In French.)
+          if (gap_ratio < 0.0f || gap_ratio > 2.0f) {
+            consistency_info->num_inconsistent_spaces++;
+          }
         }
         if (language_model_debug_level > 1) {
-          tprintf("spacing for %s(%d) %s(%d) col %d: expected %g actual %g\n",
+          tprintf("spacing for %s(%d) %s(%d) col %d: expected %g actual %d\n",
                   unicharset.id_to_unichar(parent_b->unichar_id()),
                   parent_b->unichar_id(), unicharset.id_to_unichar(unichar_id),
                   unichar_id, curr_col, expected_gap, actual_gap);
@@ -1251,7 +1251,7 @@ void LanguageModel::UpdateBestChoice(
   if (dict_->stopper_debug_level >= 1) {
     STRING word_str;
     word->string_and_lengths(&word_str, nullptr);
-    vse->Print(word_str.string());
+    vse->Print(word_str.c_str());
   }
   if (language_model_debug_level > 0) {
     word->print("UpdateBestChoice() constructed word");
@@ -1266,9 +1266,9 @@ void LanguageModel::UpdateBestChoice(
     curr_hyp.cost = vse->cost;  // record cost for error rate computations
     if (language_model_debug_level > 0) {
       tprintf("Raw features extracted from %s (cost=%g) [ ",
-              curr_hyp.str.string(), curr_hyp.cost);
-      for (int deb_i = 0; deb_i < PTRAIN_NUM_FEATURE_TYPES; ++deb_i) {
-        tprintf("%g ", curr_hyp.features[deb_i]);
+              curr_hyp.str.c_str(), curr_hyp.cost);
+      for (float feature : curr_hyp.features) {
+        tprintf("%g ", feature);
       }
       tprintf("]\n");
     }
@@ -1415,7 +1415,7 @@ WERD_CHOICE *LanguageModel::ConstructWord(
   }
 
   // Construct a WERD_CHOICE by tracing parent pointers.
-  WERD_CHOICE *word = new WERD_CHOICE(word_res->uch_set, vse->length);
+  auto *word = new WERD_CHOICE(word_res->uch_set, vse->length);
   word->set_length(vse->length);
   int total_blobs = 0;
   for (i = (vse->length-1); i >= 0; --i) {

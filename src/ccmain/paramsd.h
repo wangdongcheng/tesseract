@@ -2,7 +2,6 @@
 // File:        paramsd.h
 // Description: Tesseract parameter editor
 // Author:      Joern Wanke
-// Created:     Wed Jul 18 10:05:01 PDT 2007
 //
 // (C) Copyright 2007, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -80,14 +79,16 @@ class ParamContent : public ELIST_LINK {
   // The unique ID of this VC object.
   int my_id_;
   // Whether the parameter was changed_ and thus needs to be rewritten.
-  bool changed_;
+  bool changed_ = false;
   // The actual ParamType of this VC object.
   ParamType param_type_;
 
-  tesseract::StringParam* sIt;
-  tesseract::IntParam* iIt;
-  tesseract::BoolParam* bIt;
-  tesseract::DoubleParam* dIt;
+  union {
+    tesseract::StringParam* sIt;
+    tesseract::IntParam* iIt;
+    tesseract::BoolParam* bIt;
+    tesseract::DoubleParam* dIt;
+  };
 };
 
 ELISTIZEH(ParamContent)
@@ -103,7 +104,7 @@ class ParamsEditor : public SVEventHandler {
   explicit ParamsEditor(tesseract::Tesseract*, ScrollView* sv = nullptr);
 
   // Event listener. Waits for SVET_POPUP events and processes them.
-  void Notify(const SVEvent* sve);
+  void Notify(const SVEvent* sve) override;
 
  private:
   // Gets the up to the first 3 prefixes from s (split by _).

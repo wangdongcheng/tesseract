@@ -3,7 +3,6 @@
 // Description: Iterator for tesseract page structure that avoids using
 //              tesseract internal data structures.
 // Author:      Ray Smith
-// Created:     Fri Feb 26 14:32:09 PST 2010
 //
 // (C) Copyright 2010, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -277,7 +276,7 @@ bool PageIterator::BoundingBoxInternal(PageIteratorLevel level,
       break;
     case RIL_PARA:
       para = it_->row()->row->para();
-      // explicit fall-through.
+      // Fall through.
     case RIL_TEXTLINE:
       box = it_->row()->row->restricted_bounding_box(include_upper_dots_,
                                                      include_lower_dots_);
@@ -591,7 +590,7 @@ void PageIterator::BeginWord(int offset) {
     if (word_res->box_word != nullptr) {
       if (word_res->box_word->length() != word_length_) {
         tprintf("Corrupted word! best_choice[len=%d] = %s, box_word[len=%d]: ",
-                word_length_, word_res->best_choice->unichar_string().string(),
+                word_length_, word_res->best_choice->unichar_string().c_str(),
                 word_res->box_word->length());
         word_res->box_word->bounding_box().print();
       }

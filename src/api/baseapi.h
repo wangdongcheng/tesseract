@@ -20,17 +20,18 @@
 #define TESSERACT_API_BASEAPI_H_
 
 #include <cstdio>
+#include <functional>           // for std::function
+
 // To avoid collision with other typenames include the ABSOLUTE MINIMUM
 // complexity of includes here. Use forward declarations wherever possible
 // and hide includes of complex types in baseapi.cpp.
-#include "tess_version.h"
 #include "apitypes.h"
 #include "pageiterator.h"
 #include "platform.h"
 #include "publictypes.h"
 #include "resultiterator.h"
 #include "serialis.h"
-#include "tesscallback.h"
+#include "tess_version.h"
 #include "thresholder.h"
 #include "unichar.h"
 
@@ -56,7 +57,7 @@ class UNICHARSET;
 class WERD_CHOICE_LIST;
 
 struct INT_FEATURE_STRUCT;
-typedef INT_FEATURE_STRUCT *INT_FEATURE;
+using INT_FEATURE = INT_FEATURE_STRUCT *;
 struct TBLOB;
 
 namespace tesseract {
@@ -73,22 +74,11 @@ class Tesseract;
 class Trie;
 class Wordrec;
 
-typedef int (Dict::*DictFunc)(void* void_dawg_args,
-                              const UNICHARSET& unicharset,
-                              UNICHAR_ID unichar_id, bool word_end) const;
-typedef double (Dict::*ProbabilityInContextFunc)(const char* lang,
-                                                 const char* context,
-                                                 int context_bytes,
-                                                 const char* character,
-                                                 int character_bytes);
-typedef float (Dict::*ParamsModelClassifyFunc)(
-    const char *lang, void *path);
-typedef void (Wordrec::*FillLatticeFunc)(const MATRIX &ratings,
-                                         const WERD_CHOICE_LIST &best_choices,
-                                         const UNICHARSET &unicharset,
-                                         BlamerBundle *blamer_bundle);
-typedef TessCallback4<const UNICHARSET &, int, PageIterator *, Pix *>
-    TruthCallback;
+using DictFunc = int (Dict::*)(void *, const UNICHARSET &, UNICHAR_ID, bool) const;
+using ProbabilityInContextFunc = double (Dict::*)(const char *, const char *, int, const char *, int);
+using ParamsModelClassifyFunc = float (Dict::*)(const char *, void *);
+using FillLatticeFunc = void (Wordrec::*)(const MATRIX &, const WERD_CHOICE_LIST &, const UNICHARSET &, BlamerBundle *);
+using TruthCallback = std::function<void(const UNICHARSET&, int, PageIterator*, Pix*)>;
 
 /**
  * Base class for all tesseract APIs.
@@ -116,12 +106,6 @@ class TESS_API TessBaseAPI {
    * otherwise *device=nullptr and returns 0.
    */
   static size_t getOpenCLDevice(void **device);
-
-  /**
-   * Writes the thresholded image to stderr as a PBM file on receipt of a
-   * SIGSEGV, SIGFPE, or SIGBUS signal. (Linux/Unix only).
-   */
-  static void CatchSignals();
 
   /**
    * Set the name of the input file. Needed for training and
@@ -196,8 +180,7 @@ class TESS_API TessBaseAPI {
    * NOTE that the only members that may be called before Init are those
    * listed above here in the class definition.
    *
-   * The datapath must be the name of the parent directory of tessdata and
-   * must end in / . Any name after the last / will be stripped.
+   * The datapath must be the name of the tessdata directory.
    * The language is (usually) an ISO 639-3 string or nullptr will default to eng.
    * It is entirely safe (and eventually will be efficient too) to call
    * Init multiple times on the same instance to change language, or just
@@ -404,7 +387,7 @@ class TESS_API TessBaseAPI {
    * If paraids is not nullptr, the paragraph-id of each line within its block is
    * also returned as an array of one element per line. delete [] after use.
    */
-  Boxa* GetTextlines(const bool raw_image, const int raw_padding,
+  Boxa* GetTextlines(bool raw_image, int raw_padding,
                      Pixa** pixa, int** blockids, int** paraids);
   /*
      Helper method to extract from the thresholded image. (most common usage)
@@ -453,9 +436,9 @@ class TESS_API TessBaseAPI {
    * instead of the thresholded image and padded with raw_padding.
    * If text_only is true, then only text components are returned.
    */
-  Boxa* GetComponentImages(const PageIteratorLevel level,
-                           const bool text_only, const bool raw_image,
-                           const int raw_padding,
+  Boxa* GetComponentImages(PageIteratorLevel level,
+                           bool text_only, bool raw_image,
+                           int raw_padding,
                            Pixa** pixa, int** blockids, int** paraids);
   // Helper function to get binary images with no padding (most common usage).
   Boxa* GetComponentImages(const PageIteratorLevel level,
@@ -595,11 +578,32 @@ class TESS_API TessBaseAPI {
   char* GetHOCRText(int page_number);
 
   /**
+   * Make an XML-formatted string with Alto markup from the internal
+   * data structures.
+   */
+  char* GetAltoText(ETEXT_DESC* monitor, int page_number);
+
+
+  /**
+   * Make an XML-formatted string with Alto markup from the internal
+   * data structures.
+   */
+  char* GetAltoText(int page_number);
+
+  /**
    * Make a TSV-formatted string from the internal data structures.
    * page_number is 0-based but will appear in the output as 1-based.
    * Returned string must be freed with the delete [] operator.
    */
   char* GetTSVText(int page_number);
+
+  /**
+   * Make a box file for LSTM training from the internal data structures.
+   * Constructs coordinates in the original image - not just the rectangle.
+   * page_number is a 0-based page index that will appear in the box file.
+   * Returned string must be freed with the delete [] operator.
+   */
+  char* GetLSTMBoxText(int page_number);
 
   /**
    * The recognized text is returned as a char* which is coded in the same
@@ -609,6 +613,14 @@ class TESS_API TessBaseAPI {
    * Returned string must be freed with the delete [] operator.
    */
   char* GetBoxText(int page_number);
+
+  /**
+   * The recognized text is returned as a char* which is coded in the same
+   * format as a WordStr box file used in training.
+   * page_number is a 0-based page index that will appear in the box file.
+   * Returned string must be freed with the delete [] operator.
+   */
+  char* GetWordStrBoxText(int page_number);
 
   /**
    * The recognized text is returned as a char* which is coded
@@ -784,7 +796,7 @@ class TESS_API TessBaseAPI {
 
   OcrEngineMode oem() const { return last_oem_requested_; }
 
-  void InitTruthCallback(TruthCallback *cb) { truth_cb_ = cb; }
+  void InitTruthCallback(TruthCallback cb) { truth_cb_ = cb; }
 
   void set_min_orientation_margin(double margin);
  /* @} */
@@ -869,7 +881,7 @@ class TESS_API TessBaseAPI {
  protected:
   Tesseract*        tesseract_;       ///< The underlying data object.
   Tesseract*        osd_tesseract_;   ///< For orientation & script detection.
-  EquationDetect*   equ_detect_;      ///<The equation detector.
+  EquationDetect*   equ_detect_;      ///< The equation detector.
   FileReader reader_;                 ///< Reads files from any filesystem.
   ImageThresholder* thresholder_;     ///< Image thresholding module.
   GenericVector<ParagraphModel *>* paragraph_models_;
@@ -880,8 +892,8 @@ class TESS_API TessBaseAPI {
   STRING*           datapath_;        ///< Current location of tessdata.
   STRING*           language_;        ///< Last initialized language.
   OcrEngineMode last_oem_requested_;  ///< Last ocr language mode requested.
-  bool          recognition_done_;   ///< page_res_ contains recognition data.
-  TruthCallback *truth_cb_;           /// fxn for setting truth_* in WERD_RES
+  bool           recognition_done_;   ///< page_res_ contains recognition data.
+  TruthCallback     truth_cb_;        ///< fxn for setting truth_* in WERD_RES
 
   /**
    * @defgroup ThresholderParams Thresholder Parameters
@@ -911,12 +923,6 @@ class TESS_API TessBaseAPI {
                                  int timeout_millisec,
                                  TessResultRenderer* renderer,
                                  int tessedit_page_number);
-  // There's currently no way to pass a document title from the
-  // Tesseract command line, and we have multiple places that choose
-  // to set the title to an empty string. Using a single named
-  // variable will hopefully reduce confusion if the situation changes
-  // in the future.
-  const char *unknown_title_ = "";
 };  // class TessBaseAPI.
 
 /** Escape a char string - remove &<>"' with HTML codes. */

@@ -2,13 +2,7 @@
  ******************************************************************************
  *
  * File:        chop.cpp  (Formerly chop.c)
- * Description:
- * Author:       Mark Seaman, OCR Technology
- * Created:      Fri Oct 16 14:37:00 1987
- * Modified:     Tue Jul 30 16:41:11 1991 (Mark Seaman) marks@hpgrlt
- * Language:     C
- * Package:      N/A
- * Status:       Reusable Software Component
+ * Author:      Mark Seaman, OCR Technology
  *
  * (c) Copyright 1987, Hewlett-Packard Company.
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,13 +21,13 @@
               I n c l u d e s
 ----------------------------------------------------------------------*/
 
+#define _USE_MATH_DEFINES       // for M_PI
+#include <cmath>                // for M_PI
 #include "chop.h"
 #include "outlines.h"
 #include "callcpp.h"
 #include "plotedges.h"
 #include "wordrec.h"
-
-#include <cmath>
 
 // Include automatically generated configuration file if running autoconf.
 #ifdef HAVE_CONFIG_H
@@ -41,9 +35,28 @@
 #endif
 
 namespace tesseract {
-/*----------------------------------------------------------------------
-              F u n c t i o n s
-----------------------------------------------------------------------*/
+
+// Show if the line is going in the positive or negative X direction.
+static int direction(const EDGEPT* point) {
+  //* direction to return
+  int dir = 0;
+  //* prev point
+  const EDGEPT* prev = point->prev;
+  //* next point
+  const EDGEPT* next = point->next;
+
+  if (((prev->pos.x <= point->pos.x) && (point->pos.x < next->pos.x)) ||
+      ((prev->pos.x < point->pos.x) && (point->pos.x <= next->pos.x))) {
+    dir = 1;
+  }
+  if (((prev->pos.x >= point->pos.x) && (point->pos.x > next->pos.x)) ||
+      ((prev->pos.x > point->pos.x) && (point->pos.x >= next->pos.x))) {
+    dir = -1;
+  }
+
+  return dir;
+}
+
 /**
  * @name point_priority
  *
@@ -51,7 +64,7 @@ namespace tesseract {
  * split. The argument should be of type EDGEPT.
  */
 PRIORITY Wordrec::point_priority(EDGEPT *point) {
-  return (PRIORITY)angle_change(point->prev, point, point->next);
+  return static_cast<PRIORITY>(angle_change(point->prev, point, point->next));
 }
 
 
@@ -96,14 +109,14 @@ int Wordrec::angle_change(EDGEPT *point1, EDGEPT *point2, EDGEPT *point3) {
   vector2.x = point3->pos.x - point2->pos.x;
   vector2.y = point3->pos.y - point2->pos.y;
   /* Use cross product */
-  float length = std::sqrt(static_cast<float>(LENGTH(vector1)) * LENGTH(vector2));
-  if ((int) length == 0)
+  float length = std::sqrt(static_cast<float>(vector1.length()) * vector2.length());
+  if (static_cast<int>(length) == 0)
     return (0);
-  angle = static_cast<int>(floor(asin(CROSS (vector1, vector2) /
+  angle = static_cast<int>(floor(asin(vector1.cross(vector2) /
                                       length) / M_PI * 180.0 + 0.5));
 
   /* Use dot product */
-  if (SCALAR (vector1, vector2) < 0)
+  if (vector1.dot(vector2) < 0)
     angle = 180 - angle;
   /* Adjust angle */
   if (angle > 180)
@@ -127,7 +140,7 @@ EDGEPT *Wordrec::pick_close_point(EDGEPT *critical_point,
   int found_better;
 
   do {
-    found_better = FALSE;
+    found_better = false;
 
     this_distance = edgept_dist (critical_point, vertical_point);
     if (this_distance <= *best_dist) {
@@ -139,12 +152,12 @@ EDGEPT *Wordrec::pick_close_point(EDGEPT *critical_point,
         *best_dist = this_distance;
         best_point = vertical_point;
         if (chop_vertical_creep)
-          found_better = TRUE;
+          found_better = true;
       }
     }
     vertical_point = vertical_point->next;
   }
-  while (found_better == TRUE);
+  while (found_better == true);
 
   return (best_point);
 }
