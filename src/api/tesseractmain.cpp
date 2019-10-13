@@ -1,7 +1,7 @@
 /**********************************************************************
  * File:        tesseractmain.cpp
  * Description: Main program for merge of tess and editor.
- * Author:      Ray Smith
+ * Author:      Ray Smith / Dongcheng WANG
  *
  * (C) Copyright 1992, Hewlett-Packard Ltd.
  ** Licensed under the Apache License, Version 2.0 (the "License");
