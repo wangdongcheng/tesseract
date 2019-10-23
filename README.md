@@ -71,7 +71,7 @@ Examples can be found in the [wiki](https://github.com/tesseract-ocr/tesseract/w
 
 Developers can use `libtesseract` [C](https://github.com/tesseract-ocr/tesseract/blob/master/src/api/capi.h) or [C++](https://github.com/tesseract-ocr/tesseract/blob/master/src/api/baseapi.h) API to build their own application. If you need bindings to `libtesseract` for other programming languages, please see the [wrapper](https://github.com/tesseract-ocr/tesseract/wiki/AddOns#tesseract-wrappers) section on AddOns wiki page.
 
-Documentation of Tesseract generated from source code by doxygen can be found on [tesseract-ocr.github.io](http://tesseract-ocr.github.io/).
+Documentation of Tesseract generated from source code by doxygen can be found on [tesseract-ocr.github.io](https://tesseract-ocr.github.io/).
 
 ## Support
 
@@ -106,7 +106,11 @@ uses a [BSD 2-clause license](http://leptonica.com/about-the-license.html).
 
 ## Dependencies
 
-Tesseract uses [Leptonica library](https://github.com/DanBloomberg/leptonica) for opening input images (e.g. not documents like pdf). It is suggested to use leptonica with build-in support for [zlib](https://zlib.net), [png](https://sourceforge.net/projects/libpng) and [tiff](http://www.simplesystems.org/libtiff) (for w multipage tiff).
+Tesseract uses [Leptonica library](https://github.com/DanBloomberg/leptonica)
+for opening input images (e.g. not documents like pdf).
+It is suggested to use leptonica with built-in support for [zlib](https://zlib.net),
+[png](https://sourceforge.net/projects/libpng) and
+[tiff](http://www.simplesystems.org/libtiff) (for w multipage tiff).
 
 ## Latest Version of README
 
