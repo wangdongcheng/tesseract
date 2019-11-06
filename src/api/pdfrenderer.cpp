@@ -24,9 +24,9 @@
 #include <memory>  // std::unique_ptr
 #include <sstream> // for std::stringstream
 #include "allheaders.h"
-#include "baseapi.h"
+#include <tesseract/baseapi.h>
 #include <cmath>
-#include "renderer.h"
+#include <tesseract/renderer.h>
 #include <cstring>
 #include "tprintf.h"
 
@@ -721,7 +721,12 @@ bool TessPDFRenderer::imageToPDFObj(Pix *pix,
   } else {
     switch (cid->spp) {
       case 1:
-        colorspace.str("  /ColorSpace /DeviceGray\n");
+        if (cid->bps == 1) {
+          colorspace.str("  /ColorSpace /DeviceGray\n"
+                         "  /Decode [1 0]\n");
+        } else {
+          colorspace.str("  /ColorSpace /DeviceGray\n");
+        }
         break;
       case 3:
         colorspace.str("  /ColorSpace /DeviceRGB\n");
