@@ -6,8 +6,8 @@
             "compilerPath": "/usr/bin/gcc",
             "intelliSenseMode": "clang-x64",
             "includePath": [
-                "/home/dcwang/Documents/Codes/OCR/tesseract/src/**",
                 "/usr/include/**",
+                "/home/dcwang/Documents/Codes/OCR/tesseract/src/**",
                 "/home/dcwang/Documents/Codes/OCR/leptonica/src/**"
             ]
         }
