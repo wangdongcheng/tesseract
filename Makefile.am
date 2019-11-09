@@ -65,6 +65,25 @@ doc-clean:
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = tesseract.pc
 
+pkginclude_HEADERS = $(top_builddir)/include/tesseract/version.h
+pkginclude_HEADERS += include/tesseract/apitypes.h
+pkginclude_HEADERS += include/tesseract/baseapi.h
+pkginclude_HEADERS += include/tesseract/capi.h
+pkginclude_HEADERS += include/tesseract/genericvector.h
+pkginclude_HEADERS += include/tesseract/helpers.h
+pkginclude_HEADERS += include/tesseract/ltrresultiterator.h
+pkginclude_HEADERS += include/tesseract/ocrclass.h
+pkginclude_HEADERS += include/tesseract/osdetect.h
+pkginclude_HEADERS += include/tesseract/pageiterator.h
+pkginclude_HEADERS += include/tesseract/platform.h
+pkginclude_HEADERS += include/tesseract/publictypes.h
+pkginclude_HEADERS += include/tesseract/renderer.h
+pkginclude_HEADERS += include/tesseract/resultiterator.h
+pkginclude_HEADERS += include/tesseract/serialis.h
+pkginclude_HEADERS += include/tesseract/strngs.h
+pkginclude_HEADERS += include/tesseract/thresholder.h
+pkginclude_HEADERS += include/tesseract/unichar.h
+
 # fuzzer-api is used for fuzzing tests.
 # They are run by OSS-Fuzz https://oss-fuzz.com/, but can also be run locally.
 # Note: -fsanitize=fuzzer currently requires the clang++ compiler.
@@ -76,11 +95,10 @@ LIB_FUZZING_ENGINE ?= -fsanitize=fuzzer
 fuzzer-api: all
 fuzzer-api: $(top_srcdir)/unittest/fuzzers/fuzzer-api.cpp
 	$(CXX) $(CXXFLAGS) -g $(LIB_FUZZING_ENGINE) \
-          -I $(top_srcdir)/src/api \
+          -I $(top_srcdir)/include \
           -I $(top_srcdir)/src/ccmain \
           -I $(top_srcdir)/src/ccstruct \
           -I $(top_srcdir)/src/ccutil \
-          -I src/api \
           $< \
           src/api/.libs/libtesseract.a \
           $(LEPTONICA_LIBS) \

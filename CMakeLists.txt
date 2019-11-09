@@ -8,7 +8,7 @@
 #
 ###############################################################################
 
-cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.7 FATAL_ERROR)
 
 # In-source builds are disabled.
 if ("${CMAKE_CURRENT_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_BINARY_DIR}")
@@ -66,10 +66,10 @@ set(MINIMUM_LEPTONICA_VERSION 1.74)
 # options
 #
 ###############################################################################
+
 message( "Configuring tesseract version ${PACKAGE_VERSION}...")
 
-option(CPPAN_BUILD "Build with cppan" ON)
-option(SW_BUILD "Build with sw" OFF)
+option(SW_BUILD "Build with sw" ON)
 option(OPENMP_BUILD "Build with openmp support" OFF)  # see issue #1662
 option(AUTO_OPTIMIZE "Usage of cmake auto optimize macros (not suitable for portable build)" ON)
 option(GRAPHICS_DISABLED "Disable disable graphics (ScrollView)" OFF)
@@ -77,10 +77,6 @@ option(DISABLED_LEGACY_ENGINE "Disable the legacy OCR engine" OFF)
 option(BUILD_TRAINING_TOOLS "Build training tools" ON)
 option(BUILD_TESTS "Build tests" OFF)
 option(USE_SYSTEM_ICU "Use system ICU" OFF)
-
-if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.cppan OR SW_BUILD)
-    set(CPPAN_BUILD OFF)
-endif()
 
 ###############################################################################
 #
@@ -150,10 +146,26 @@ if(CLANG)  # clang all platforms
 endif()
 
 if (OPENMP_BUILD)
-    if (MSVC)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /openmp")
-    else()
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
+    find_package(OpenMP QUIET)
+    if (OpenMP_FOUND)
+        message(">> ${OpenMP_FOUND} ${OpenMP_VERSION}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+        add_library(OpenMP::OpenMP_CXX IMPORTED INTERFACE)
+    endif()
+    # https://stackoverflow.com/questions/12399422/how-to-set-linker-flags-for-openmp-in-cmakes-try-compile-function
+    if (NOT OpenMP_FOUND AND CLANG AND WIN32)
+        # workaroung because find_package(OpenMP) does not work for clang-cl
+        # https://gitlab.kitware.com/cmake/cmake/issues/19404
+        check_include_file_cxx(omp.h HAVE_OMP_H_INCLUDE)
+        find_library(OpenMP_LIBRARY NAMES omp libomp.lib)
+        message(">> OpenMP_LIBRARY: ${OpenMP_LIBRARY}")
+        if (MSVC)
+            set(OpenMP_CXX_FLAGS "${OpenMP_CXX_FLAGS} /openmp")
+        else()
+            set(OpenMP_CXX_FLAGS "${OpenMP_CXX_FLAGS} -fopenmp")
+        endif()
+        set(OpenMP_FOUND 1)
+        add_definitions(-D_OPENMP=201107)  # 3.1 version is supported from Clang 3.8.0
     endif()
 endif()
 
@@ -174,14 +186,7 @@ endif()
 #
 ###############################################################################
 
-if(CPPAN_BUILD)
-    if (STATIC)
-        set(CPPAN_BUILD_SHARED_LIBS 0)
-    else()
-        set(CPPAN_BUILD_SHARED_LIBS 1)
-    endif()
-    add_subdirectory(.cppan)
-elseif (SW_BUILD)
+if (SW_BUILD)
     find_package(SW REQUIRED)
     if (STATIC)
         set(SW_BUILD_SHARED_LIBS 0)
@@ -189,7 +194,7 @@ elseif (SW_BUILD)
         set(SW_BUILD_SHARED_LIBS 1)
     endif()
     sw_add_package(
-        org.sw.demo.danbloomberg.leptonica-master
+        org.sw.demo.danbloomberg.leptonica
         org.sw.demo.libarchive.libarchive
     )
     if (BUILD_TRAINING_TOOLS)
@@ -269,8 +274,8 @@ configure_file(${AUTOCONFIG_SRC} ${AUTOCONFIG} @ONLY)
 set(INCLUDE_DIR "${CMAKE_INSTALL_PREFIX}/include" "${CMAKE_INSTALL_PREFIX}/include/tesseract")
 
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tess_version.h.in
-    ${CMAKE_CURRENT_BINARY_DIR}/api/tess_version.h @ONLY)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/tesseract/version.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/include/tesseract/version.h @ONLY)
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vs2010/tesseract/tesseract.rc.in
     ${CMAKE_CURRENT_BINARY_DIR}/vs2010/tesseract/tesseract.rc @ONLY)
@@ -308,7 +313,6 @@ message( STATUS "SSE41_OPT: ${SSE41_OPT}")
 message( STATUS "MARCH_NATIVE_OPT: ${MARCH_NATIVE_OPT}")
 message( STATUS "sim_flags: ${sim_flags}")
 message( STATUS "--------------------------------------------------------")
-message( STATUS "Build with cppan [CPPAN_BUILD]: ${CPPAN_BUILD}")
 message( STATUS "Build with sw [SW_BUILD]: ${SW_BUILD}")
 message( STATUS "Build with openmp support [OPENMP_BUILD]: ${OPENMP_BUILD}")
 message( STATUS "Disable disable graphics (ScrollView) [GRAPHICS_DISABLED]: ${GRAPHICS_DISABLED}")
@@ -334,8 +338,8 @@ include_directories(${Leptonica_INCLUDE_DIRS})
 include_directories(${LibArchive_INCLUDE_DIRS})
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-include_directories(src/api)
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/api)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
+include_directories(include)
 include_directories(src/arch)
 include_directories(src/ccmain)
 include_directories(src/ccstruct)
@@ -398,7 +402,6 @@ endif(SSE41_OPT)
 set_source_files_properties(${arch_files_opt} PROPERTIES COMPILE_FLAGS "${Vc_CXX_FLAGS}")
 
 file(GLOB tesseract_hdr
-    src/api/*.h
     src/arch/*.h
     src/ccmain/*.h
     src/ccstruct/*.h
@@ -454,16 +457,9 @@ else()
 set_target_properties           (libtesseract PROPERTIES OUTPUT_NAME tesseract)
 endif()
 
-if (CPPAN_BUILD)
+if (SW_BUILD)
     target_link_libraries       (libtesseract PUBLIC
-        pvt.cppan.demo.danbloomberg.leptonica
-        pvt.cppan.demo.libarchive.libarchive
-    )
-    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/TesseractTargets.cmake "include(${CMAKE_CURRENT_BINARY_DIR}/cppan.cmake)\n")
-    export(TARGETS libtesseract APPEND FILE ${CMAKE_CURRENT_BINARY_DIR}/TesseractTargets.cmake)
-elseif (SW_BUILD)
-    target_link_libraries       (libtesseract PUBLIC
-        org.sw.demo.danbloomberg.leptonica-master
+        org.sw.demo.danbloomberg.leptonica
         org.sw.demo.libarchive.libarchive
     )
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/TesseractTargets.cmake "include(${CMAKE_CURRENT_BINARY_DIR}/cppan.cmake)\n")
@@ -479,8 +475,7 @@ endif()
 if (WIN32 AND CLANG AND OPENMP_BUILD)
     # Workaround for "libomp.lib is not automatically added on Windows"
     # see: http://lists.llvm.org/pipermail/openmp-dev/2015-August/000857.html
-    # TODO: Find better way how to set Clang OpenMP library for linking on Windows
-    target_link_libraries       (libtesseract PRIVATE "c:\\Program Files\\LLVM\\lib\\libomp.lib")
+    target_link_libraries (libtesseract PRIVATE ${OpenMP_LIBRARY})
 endif()
 
 ########################################
@@ -527,30 +522,30 @@ install(FILES
 
 install(FILES
     # from api/makefile.am
-    src/api/apitypes.h
-    src/api/baseapi.h
-    src/api/capi.h
-    src/api/renderer.h
-    ${CMAKE_CURRENT_BINARY_DIR}/api/tess_version.h
+    include/tesseract/apitypes.h
+    include/tesseract/baseapi.h
+    include/tesseract/capi.h
+    include/tesseract/renderer.h
+    ${CMAKE_CURRENT_BINARY_DIR}/include/tesseract/version.h
 
     #from ccmain/makefile.am
-    src/ccmain/thresholder.h
-    src/ccmain/ltrresultiterator.h
-    src/ccmain/pageiterator.h
-    src/ccmain/resultiterator.h
-    src/ccmain/osdetect.h
+    include/tesseract/thresholder.h
+    include/tesseract/ltrresultiterator.h
+    include/tesseract/pageiterator.h
+    include/tesseract/resultiterator.h
+    include/tesseract/osdetect.h
 
     #from ccstruct/makefile.am
-    src/ccstruct/publictypes.h
+    include/tesseract/publictypes.h
 
     #from ccutil/makefile.am
-    src/ccutil/genericvector.h
-    src/ccutil/helpers.h
-    src/ccutil/ocrclass.h
-    src/ccutil/platform.h
-    src/ccutil/serialis.h
-    src/ccutil/strngs.h
-    src/ccutil/unichar.h
+    include/tesseract/genericvector.h
+    include/tesseract/helpers.h
+    include/tesseract/ocrclass.h
+    include/tesseract/platform.h
+    include/tesseract/serialis.h
+    include/tesseract/strngs.h
+    include/tesseract/unichar.h
 
     #${CMAKE_CURRENT_BINARY_DIR}/src/endianness.h
     DESTINATION include/tesseract)

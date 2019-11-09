@@ -21,11 +21,11 @@
 
 #include <functional>           // for std::function
 #include "errcode.h"
-#include "genericvector.h"
-#include "helpers.h"
-#include "serialis.h"
-#include "strngs.h"
-#include "unichar.h"
+#include <tesseract/genericvector.h>
+#include <tesseract/helpers.h>
+#include <tesseract/serialis.h>
+#include <tesseract/strngs.h>
+#include <tesseract/unichar.h>
 #include "unicharmap.h"
 
 // Enum holding special values of unichar_id. Every unicharset has these.
@@ -929,7 +929,7 @@ class UNICHARSET {
     uint8_t max_bottom;
     uint8_t min_top;
     uint8_t max_top;
-    // Statstics of the widths of bounding box, relative to the median advance.
+    // Statistics of the widths of bounding box, relative to the median advance.
     float width;
     float width_sd;
     // Stats of the x-bearing and advance, also relative to the median advance.

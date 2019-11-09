@@ -34,16 +34,16 @@
 #ifndef DISABLED_LEGACY_ENGINE
 #include "docqual.h"                // for GARBAGE_LEVEL
 #endif
-#include "genericvector.h"          // for GenericVector, PointerVector
+#include <tesseract/genericvector.h>          // for GenericVector, PointerVector
 #include "pageres.h"                // for WERD_RES (ptr only), PAGE_RES (pt...
 #include "params.h"                 // for BOOL_VAR_H, BoolParam, DoubleParam
 #include "points.h"                 // for FCOORD
-#include "publictypes.h"            // for OcrEngineMode, PageSegMode, OEM_L...
+#include <tesseract/publictypes.h>            // for OcrEngineMode, PageSegMode, OEM_L...
 #include "ratngs.h"                 // for ScriptPos, WERD_CHOICE (ptr only)
-#include "strngs.h"                 // for STRING
+#include <tesseract/strngs.h>                 // for STRING
 #include "tessdatamanager.h"        // for TessdataManager
 #include "textord.h"                // for Textord
-#include "unichar.h"                // for UNICHAR_ID
+#include <tesseract/unichar.h>                // for UNICHAR_ID
 #include "wordrec.h"                // for Wordrec
 
 class BLOCK_LIST;
@@ -87,7 +87,7 @@ class WERD_RES;
 //
 // Other important classes:
 //
-//  TessBaseAPI (api/baseapi.h)
+//  TessBaseAPI (tesseract/baseapi.h)
 //                                 Members include: BLOCK_LIST*, PAGE_RES*,
 //                                 Tesseract*, ImageThresholder*
 //  Dict (dict/dict.h)
@@ -334,7 +334,8 @@ class Tesseract : public Wordrec {
   // Generates training data for training a line recognizer, eg LSTM.
   // Breaks the page into lines, according to the boxes, and writes them to a
   // serialized DocumentData based on output_basename.
-  void TrainLineRecognizer(const STRING& input_imagename,
+  // Return true if successful, false if an error occurred.
+  bool TrainLineRecognizer(const STRING& input_imagename,
                            const STRING& output_basename,
                            BLOCK_LIST* block_list);
   // Generates training data for training a line recognizer, eg LSTM.
@@ -795,7 +796,7 @@ class Tesseract : public Wordrec {
   INT_VAR_H(tessedit_pageseg_mode, PSM_SINGLE_BLOCK,
             "Page seg mode: 0=osd only, 1=auto+osd, 2=auto, 3=col, 4=block,"
             " 5=line, 6=word, 7=char"
-            " (Values from PageSegMode enum in publictypes.h)");
+            " (Values from PageSegMode enum in tesseract/publictypes.h)");
   INT_VAR_H(tessedit_ocr_engine_mode, tesseract::OEM_DEFAULT,
             "Which OCR engine(s) to run (Tesseract, LSTM, both). Defaults"
             " to loading and running the most accurate available.");
@@ -1092,6 +1093,8 @@ class Tesseract : public Wordrec {
                "the coefficient, the better are the ratings for each choice "
                "and less information is lost due to the cut off at 0. The "
                "standard value is 5.");
+  BOOL_VAR_H(pageseg_apply_music_mask, true,
+             "Detect music staff and remove intersecting components");
 
   //// ambigsrecog.cpp /////////////////////////////////////////////////////////
   FILE* init_recog_training(const STRING& fname);

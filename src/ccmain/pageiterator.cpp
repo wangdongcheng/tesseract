@@ -17,9 +17,9 @@
 //
 ///////////////////////////////////////////////////////////////////////
 
-#include "pageiterator.h"
+#include <tesseract/pageiterator.h>
 #include "allheaders.h"
-#include "helpers.h"
+#include <tesseract/helpers.h>
 #include "pageres.h"
 #include "tesseractclass.h"
 
@@ -354,7 +354,7 @@ bool PageIterator::Empty(PageIteratorLevel level) const {
   return false;
 }
 
-/** Returns the type of the current block. See apitypes.h for PolyBlockType. */
+/** Returns the type of the current block. See tesseract/apitypes.h for PolyBlockType. */
 PolyBlockType PageIterator::BlockType() const {
   if (it_->block() == nullptr || it_->block()->block == nullptr)
     return PT_UNKNOWN;  // Already at the end!
